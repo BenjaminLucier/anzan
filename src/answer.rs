@@ -115,8 +115,9 @@ fn parse_yes_no(input: &str) -> Option<bool> {
 }
 
 /// Factors separated by spaces, commas, `*`, `x` or `×`, each optionally
-/// raised to a power with `^`.
+/// raised to a power with `^` or superscript digits.
 fn parse_factors(input: &str) -> Option<Vec<u64>> {
+    let input = caret_powers(input);
     let mut factors = Vec::new();
     let tokens = input
         .split(|c: char| c.is_whitespace() || matches!(c, ',' | '*' | 'x' | '×' | '·'))
@@ -131,6 +132,29 @@ fn parse_factors(input: &str) -> Option<Vec<u64>> {
         factors.extend(std::iter::repeat_n(base, exp));
     }
     (!factors.is_empty()).then_some(factors)
+}
+
+/// Rewrites superscript digits as `^` powers: `2³` becomes `2^3`.
+fn caret_powers(input: &str) -> String {
+    const SUPERSCRIPTS: &str = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+    let mut out = String::with_capacity(input.len());
+    let mut in_power = false;
+    for c in input.chars() {
+        match SUPERSCRIPTS.chars().position(|s| s == c) {
+            Some(digit) => {
+                if !in_power {
+                    out.push('^');
+                }
+                out.push(char::from(b'0' + digit as u8));
+                in_power = true;
+            }
+            None => {
+                out.push(c);
+                in_power = false;
+            }
+        }
+    }
+    out
 }
 
 #[cfg(test)]

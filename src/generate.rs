@@ -1,6 +1,7 @@
 //! Generators that produce problems at random.
 
 mod arithmetic;
+mod number_theory;
 mod powers;
 
 use std::fmt;
@@ -10,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 pub use self::{
     arithmetic::{AddSub, LongMul, MulDiv},
+    number_theory::NumberTheory,
     powers::Powers,
 };
 
@@ -95,6 +97,7 @@ pub struct Settings {
     pub mul_div: MulDiv,
     pub long_mul: LongMul,
     pub powers: Powers,
+    pub number_theory: NumberTheory,
 }
 
 impl Default for Settings {
@@ -105,6 +108,7 @@ impl Default for Settings {
             mul_div: MulDiv::default(),
             long_mul: LongMul::default(),
             powers: Powers::default(),
+            number_theory: NumberTheory::default(),
         }
     }
 }
@@ -118,7 +122,8 @@ impl Settings {
         if self.mul_div.lhs.contains(0) && self.kinds.contains(&Kind::Div) {
             return Err("`mul_div.lhs` must not contain 0, since it is the divisor".into());
         }
-        self.powers.validate()
+        self.powers.validate()?;
+        self.number_theory.validate()
     }
 
     /// # Panics
@@ -140,6 +145,9 @@ impl Settings {
             Kind::Square => self.powers.square(rng),
             Kind::Cube => self.powers.cube(rng),
             Kind::PowerOfTwo => self.powers.power_of_two(rng),
+            Kind::Divisible => self.number_theory.divisible(rng),
+            Kind::Prime => self.number_theory.is_prime(rng),
+            Kind::Factorize => self.number_theory.factorize(rng),
         }
     }
 }

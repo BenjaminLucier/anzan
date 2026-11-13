@@ -4,7 +4,11 @@ use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{answer::Answer, expr::Expr};
+use crate::{
+    answer::Answer,
+    expr::Expr,
+    number::{is_prime, prime_factors},
+};
 
 /// A kind of problem. Sessions choose among the kinds enabled in the
 /// config, and statistics group by kind.
@@ -19,6 +23,9 @@ pub enum Kind {
     Square,
     Cube,
     PowerOfTwo,
+    Divisible,
+    Prime,
+    Factorize,
 }
 
 impl Kind {
@@ -32,6 +39,9 @@ impl Kind {
         Kind::Square,
         Kind::Cube,
         Kind::PowerOfTwo,
+        Kind::Divisible,
+        Kind::Prime,
+        Kind::Factorize,
     ];
 
     /// The kinds a session asks unless told otherwise: the four basic
@@ -49,6 +59,9 @@ impl Kind {
             Kind::Square => "square",
             Kind::Cube => "cube",
             Kind::PowerOfTwo => "power_of_two",
+            Kind::Divisible => "divisible",
+            Kind::Prime => "prime",
+            Kind::Factorize => "factorize",
         }
     }
 
@@ -63,6 +76,9 @@ impl Kind {
             Kind::Square => "Squares",
             Kind::Cube => "Cubes",
             Kind::PowerOfTwo => "Powers of 2",
+            Kind::Divisible => "Divisibility",
+            Kind::Prime => "Primes",
+            Kind::Factorize => "Prime factors",
         }
     }
 }
@@ -120,14 +136,48 @@ impl Op {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Problem {
-    Add { lhs: i64, rhs: i64 },
-    Sub { lhs: i64, rhs: i64 },
-    Mul { lhs: i64, rhs: i64 },
-    Div { lhs: i64, rhs: i64 },
-    LongMul { lhs: i64, rhs: i64 },
-    Square { base: i64 },
-    Cube { base: i64 },
-    PowerOfTwo { exp: i64 },
+    Add {
+        lhs: i64,
+        rhs: i64,
+    },
+    Sub {
+        lhs: i64,
+        rhs: i64,
+    },
+    Mul {
+        lhs: i64,
+        rhs: i64,
+    },
+    Div {
+        lhs: i64,
+        rhs: i64,
+    },
+    LongMul {
+        lhs: i64,
+        rhs: i64,
+    },
+    Square {
+        base: i64,
+    },
+    Cube {
+        base: i64,
+    },
+    PowerOfTwo {
+        exp: i64,
+    },
+    /// Is `n` divisible by `d`?
+    Divisible {
+        n: i64,
+        d: i64,
+    },
+    /// Is `n` prime?
+    IsPrime {
+        n: i64,
+    },
+    /// The prime factors of `n`.
+    Factorize {
+        n: i64,
+    },
 }
 
 impl Problem {
@@ -150,6 +200,9 @@ impl Problem {
             Problem::Square { .. } => Kind::Square,
             Problem::Cube { .. } => Kind::Cube,
             Problem::PowerOfTwo { .. } => Kind::PowerOfTwo,
+            Problem::Divisible { .. } => Kind::Divisible,
+            Problem::IsPrime { .. } => Kind::Prime,
+            Problem::Factorize { .. } => Kind::Factorize,
         }
     }
 
@@ -162,7 +215,12 @@ impl Problem {
             Problem::Mul { lhs, rhs } => Some((Op::Mul, lhs, rhs)),
             Problem::Div { lhs, rhs } => Some((Op::Div, lhs, rhs)),
             Problem::LongMul { lhs, rhs } => Some((Op::Mul, lhs, rhs)),
-            Problem::Square { .. } | Problem::Cube { .. } | Problem::PowerOfTwo { .. } => None,
+            Problem::Square { .. }
+            | Problem::Cube { .. }
+            | Problem::PowerOfTwo { .. }
+            | Problem::Divisible { .. }
+            | Problem::IsPrime { .. }
+            | Problem::Factorize { .. } => None,
         }
     }
 
@@ -180,6 +238,9 @@ impl Problem {
             Problem::Square { base } => Answer::int(base * base),
             Problem::Cube { base } => Answer::int(base * base * base),
             Problem::PowerOfTwo { exp } => Answer::int(1 << exp),
+            Problem::Divisible { n, d } => Answer::YesNo(n % d == 0),
+            Problem::IsPrime { n } => Answer::YesNo(is_prime(n as u64)),
+            Problem::Factorize { n } => Answer::Factors(prime_factors(n as u64)),
         }
     }
 }
@@ -202,6 +263,18 @@ impl Problem {
             Problem::Square { base } => pow(base, 2),
             Problem::Cube { base } => pow(base, 3),
             Problem::PowerOfTwo { exp } => pow(2, exp),
+            Problem::Divisible { n, d } => Expr::text(format!("{n} ÷ {d}")),
+            Problem::IsPrime { n } | Problem::Factorize { n } => Expr::text(n.to_string()),
+        }
+    }
+
+    /// Words shown with the notation when it does not say what to do.
+    pub fn prompt(&self) -> Option<&'static str> {
+        match self {
+            Problem::Divisible { .. } => Some("divides exactly? y/n"),
+            Problem::IsPrime { .. } => Some("prime? y/n"),
+            Problem::Factorize { .. } => Some("prime factors, such as 2 2 3 or 2^2 3"),
+            _ => None,
         }
     }
 }
@@ -209,7 +282,12 @@ impl Problem {
 /// The question on one line, as stored in history.
 impl fmt::Display for Problem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.expr())
+        match self {
+            Problem::Divisible { n, d } => write!(f, "Is {n} divisible by {d}?"),
+            Problem::IsPrime { n } => write!(f, "Is {n} prime?"),
+            Problem::Factorize { n } => write!(f, "Prime factors of {n}"),
+            _ => write!(f, "{}", self.expr()),
+        }
     }
 }
 
@@ -248,6 +326,17 @@ mod tests {
         assert_eq!(answer(Problem::Square { base: 17 }), "289");
         assert_eq!(answer(Problem::Cube { base: 12 }), "1728");
         assert_eq!(answer(Problem::PowerOfTwo { exp: 20 }), "1048576");
+    }
+
+    #[test]
+    fn number_theory() {
+        let answer = |p: Problem| p.answer().to_string();
+        assert_eq!(answer(Problem::Divisible { n: 2431, d: 11 }), "yes");
+        assert_eq!(answer(Problem::Divisible { n: 2432, d: 11 }), "no");
+        assert_eq!(answer(Problem::IsPrime { n: 91 }), "no");
+        assert_eq!(answer(Problem::IsPrime { n: 97 }), "yes");
+        assert_eq!(answer(Problem::Factorize { n: 360 }), "2³ × 3² × 5");
+        assert_eq!(Problem::IsPrime { n: 91 }.to_string(), "Is 91 prime?");
     }
 
     #[test]

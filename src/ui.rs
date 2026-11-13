@@ -133,7 +133,11 @@ fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
         room.height
             .saturating_sub(INPUT_HEIGHT + BELOW + 2 * SPACING),
     );
-    let [question_area, input, below] = Layout::vertical([
+    let prompt = session.problem.prompt();
+    let prompt_height = u16::from(prompt.is_some());
+    let room = Size::new(room.width, room.height.saturating_sub(prompt_height));
+    let [prompt_area, question_area, input, below] = Layout::vertical([
+        Constraint::Length(prompt_height),
         Constraint::Length(question.height(room)),
         Constraint::Length(INPUT_HEIGHT),
         Constraint::Length(BELOW),
@@ -141,6 +145,9 @@ fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
     .flex(Flex::Center)
     .spacing(SPACING)
     .areas(area);
+    if let Some(prompt) = prompt {
+        frame.render_widget(Line::from(prompt).dim().centered(), prompt_area);
+    }
     frame.render_widget(&question, question_area.inner(Margin::new(2, 0)));
     let input = input.centered_horizontally(Constraint::Length(INPUT_WIDTH));
     render_input(&session.input, frame, input);

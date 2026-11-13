@@ -19,6 +19,7 @@ submit = "auto"
 #   "add", "sub", "mul", "div"          the four basic operations
 #   "long_mul"                          larger multiplications, like 47 × 38
 #   "square", "cube", "power_of_two"    powers to know by heart
+#   "divisible", "prime", "factorize"   divisibility, primes, factorization
 kinds = ["add", "sub", "mul", "div"]
 
 [problems.add_sub]
@@ -44,3 +45,12 @@ rhs = [10, 99]
 squares = [2, 30]
 cubes = [2, 12]
 twos = [1, 20]
+
+[problems.number_theory]
+# "Is n divisible by d?" asks about numbers in `dividends` and divisors in
+# `divisors`. "Is n prime?" asks about numbers in `primes`. "Factorize n"
+# asks for the prime factors of a composite number in `factorize`.
+divisors = [2, 13]
+dividends = [100, 9999]
+primes = [2, 100]
+factorize = [4, 1000]
