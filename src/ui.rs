@@ -5,6 +5,7 @@
 
 mod bitmap;
 mod font;
+mod kanji;
 
 use std::time::Duration;
 
@@ -16,8 +17,12 @@ use ratatui::{
     widgets::Block,
 };
 
-use self::bitmap::BigText;
-use crate::app::{App, MAX_INPUT, Screen, Session, Summary};
+use self::bitmap::{BigText, Scale};
+use crate::{
+    app::{App, MAX_INPUT, Menu, Row, Screen, Session, Summary},
+    config::Config,
+    problem::Op,
+};
 
 /// Width of the answer box: the longest input, the cursor after it, one
 /// cell of padding, and the two borders.
@@ -26,13 +31,83 @@ const INPUT_WIDTH: u16 = MAX_INPUT as u16 + 4;
 pub fn render(app: &App, frame: &mut Frame) {
     let [top, body] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
-    frame.render_widget(Line::from("Esc quit ").dim().right_aligned(), top);
+    let hint = match app.screen {
+        Screen::Menu(_) => "Esc quit ",
+        Screen::Practice(_) => "Esc menu ",
+        Screen::Summary(_) => "Enter again · Esc menu ",
+    };
+    frame.render_widget(Line::from(hint).dim().right_aligned(), top);
     match &app.screen {
+        Screen::Menu(menu) => render_menu(menu, &app.config, frame, body),
         Screen::Practice(session) => {
             render_status(session, frame, top);
             render_practice(session, frame, body);
         }
         Screen::Summary(summary) => render_summary(summary, frame, body),
+    }
+}
+
+/// The name in large kanji, then the settings for the next session.
+fn render_menu(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
+    let rows: Vec<Line> = Row::ALL
+        .iter()
+        .enumerate()
+        .map(|(i, &row)| menu_line(row, config, i == menu.selected))
+        .collect();
+    let rows = Text::from(rows);
+    let hints = Line::from("↑↓ choose · ←→ change · Enter start")
+        .dim()
+        .centered();
+
+    let title = BigText::bitmap(Some(kanji::anzan()), "暗算").scales(Scale::SQUARE);
+    let fixed = 1 + 1 + rows.height() as u16 + 1 + 1;
+    let room = Size::new(area.width, area.height.saturating_sub(fixed + 2));
+    let [title_area, name, _, rows_area, _, hints_area] = Layout::vertical([
+        Constraint::Length(title.height(room)),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(rows.height() as u16),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .flex(Flex::Center)
+    .areas(area);
+
+    frame.render_widget(&title, title_area);
+    frame.render_widget(Line::from("anzan · mental math").dim().centered(), name);
+    let rows_area = rows_area.centered_horizontally(Constraint::Length(MENU_WIDTH));
+    frame.render_widget(rows, rows_area);
+    frame.render_widget(hints, hints_area);
+}
+
+/// Width of the settings list.
+const MENU_WIDTH: u16 = 32;
+
+fn menu_line(row: Row, config: &Config, selected: bool) -> Line<'static> {
+    let (label, value) = match row {
+        Row::Duration => (
+            "Duration",
+            format!("◂ {} ▸", clock(config.session.duration())),
+        ),
+        Row::Op(op) => {
+            let on = config.problems.ops.contains(&op);
+            (op_label(op), if on { "[x]" } else { "[ ]" }.to_owned())
+        }
+    };
+    let marker = if selected { "› " } else { "  " };
+    // Everything here is one cell per character, so counting characters
+    // gives the width in cells.
+    let width = usize::from(MENU_WIDTH) - marker.chars().count() - label.len();
+    let line = Line::from(format!("{marker}{label}{value:>width$}"));
+    if selected { line.bold() } else { line }
+}
+
+fn op_label(op: Op) -> &'static str {
+    match op {
+        Op::Add => "Addition",
+        Op::Sub => "Subtraction",
+        Op::Mul => "Multiplication",
+        Op::Div => "Division",
     }
 }
 

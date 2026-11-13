@@ -26,14 +26,19 @@ fn main() -> Result<()> {
             let mut config = Config::load(&config_path)?;
             cli.session.apply(&mut config);
             config.validate().context("in command-line flags")?;
-            practice(config)
+            practice(config, cli.session.is_set())
         }
     }
 }
 
-fn practice(config: Config) -> Result<()> {
+/// Opens the menu, or goes straight into a session if `start` is set.
+fn practice(config: Config, start: bool) -> Result<()> {
     let store = Store::new(store::data_dir()?);
-    let app = App::new(config, rand::make_rng(), Instant::now(), Timestamp::now());
+    let now = Instant::now();
+    let mut app = App::new(config, rand::make_rng(), now, Timestamp::now());
+    if start {
+        app = app.start_now(now);
+    }
     ratatui::run(|terminal| run(terminal, app, &store))
 }
 

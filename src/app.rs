@@ -6,6 +6,7 @@
 //! time. What should be saved is queued as records, which the caller drains
 //! and writes to the store.
 
+mod menu;
 mod session;
 
 use std::time::{Duration, Instant};
@@ -14,7 +15,10 @@ use jiff::Timestamp;
 use rand::{SeedableRng, rngs::StdRng};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-pub use self::session::{Epoch, MAX_INPUT, Session, Summary};
+pub use self::{
+    menu::{Menu, Row},
+    session::{Epoch, MAX_INPUT, Session, Summary},
+};
 use crate::{
     config::Config,
     store::{Attempt, SessionRecord},
@@ -32,12 +36,15 @@ pub enum Record {
     reason = "there is only ever one screen, so boxing would gain nothing"
 )]
 pub enum Screen {
+    Menu(Menu),
     Practice(Session),
     Summary(Summary),
 }
 
 pub struct App {
-    config: Config,
+    /// Settings for the next session: the config file, overridden by
+    /// command-line flags and then by changes made in the menu.
+    pub config: Config,
     rng: StdRng,
     epoch: Epoch,
     records: Vec<Record>,
@@ -46,22 +53,22 @@ pub struct App {
 }
 
 impl App {
-    /// Starts a session straight away. `now` and `wall` must describe the
-    /// same moment.
+    /// Opens on the menu. `now` and `wall` must describe the same moment.
     pub fn new(config: Config, rng: StdRng, now: Instant, wall: Timestamp) -> Self {
-        let mut app = Self {
+        Self {
             config,
             rng,
             epoch: Epoch { instant: now, wall },
             records: Vec::new(),
-            screen: Screen::Summary(Summary {
-                score: 0,
-                time_per_answer: None,
-            }),
+            screen: Screen::Menu(Menu::default()),
             quit: false,
-        };
-        app.start(now);
-        app
+        }
+    }
+
+    /// Skips the menu and starts a session.
+    pub fn start_now(mut self, now: Instant) -> Self {
+        self.start(now);
+        self
     }
 
     /// Takes the records queued since the last call.
@@ -83,7 +90,7 @@ impl App {
     pub fn until_next_tick(&self) -> Option<Duration> {
         match &self.screen {
             Screen::Practice(session) => Some(session.until_next_tick()),
-            Screen::Summary(_) => None,
+            Screen::Menu(_) | Screen::Summary(_) => None,
         }
     }
 
@@ -98,21 +105,33 @@ impl App {
             // screen, so it must not act on the new one.
             return;
         }
-        if key.code == KeyCode::Esc
-            || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
-        {
-            if practising {
-                self.end_session(now, false);
-            }
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.end_session(now, false);
             self.quit = true;
             return;
         }
         match (&mut self.screen, key.code) {
+            (Screen::Menu(_), KeyCode::Esc | KeyCode::Char('q')) => self.quit = true,
+            (Screen::Menu(_), KeyCode::Enter) => self.start(now),
+            (Screen::Menu(menu), code) => match code {
+                KeyCode::Up | KeyCode::Char('k') => menu.up(),
+                KeyCode::Down | KeyCode::Char('j') => menu.down(),
+                KeyCode::Left | KeyCode::Char('h') => menu.change(&mut self.config, false),
+                KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(' ') => {
+                    menu.change(&mut self.config, true);
+                }
+                _ => {}
+            },
+            (Screen::Practice(_), KeyCode::Esc) => {
+                self.end_session(now, false);
+                self.screen = Screen::Menu(Menu::default());
+            }
             (Screen::Practice(session), KeyCode::Char(c)) => {
                 session.type_char(c, now, &mut self.records);
             }
             (Screen::Practice(session), KeyCode::Backspace) => session.backspace(),
             (Screen::Summary(_), KeyCode::Enter) => self.start(now),
+            (Screen::Summary(_), KeyCode::Esc) => self.screen = Screen::Menu(Menu::default()),
             _ => {}
         }
     }
@@ -153,21 +172,22 @@ mod tests {
             StdRng::seed_from_u64(0),
             t0,
             wall_epoch(),
-        );
+        )
+        .start_now(t0);
         (app, t0)
     }
 
     fn session(app: &App) -> &Session {
         match &app.screen {
             Screen::Practice(session) => session,
-            Screen::Summary(_) => panic!("not practising"),
+            _ => panic!("not practising"),
         }
     }
 
     fn summary(app: &App) -> &Summary {
         match &app.screen {
             Screen::Summary(summary) => summary,
-            Screen::Practice(_) => panic!("not on the summary"),
+            _ => panic!("not on the summary"),
         }
     }
 
@@ -250,15 +270,64 @@ mod tests {
         assert_eq!(session(&app).input, "-");
     }
 
+    fn on_menu(app: &App) -> bool {
+        matches!(app.screen, Screen::Menu(_))
+    }
+
     #[test]
-    fn esc_and_ctrl_c_quit() {
+    fn opens_on_the_menu() {
+        let t0 = Instant::now();
+        let app = App::new(
+            Config::default(),
+            StdRng::seed_from_u64(0),
+            t0,
+            wall_epoch(),
+        );
+        assert!(on_menu(&app));
+        assert_eq!(app.until_next_tick(), None);
+    }
+
+    #[test]
+    fn enter_on_menu_starts_with_its_settings() {
+        let t0 = Instant::now();
+        let mut app = App::new(
+            Config::default(),
+            StdRng::seed_from_u64(0),
+            t0,
+            wall_epoch(),
+        );
+        press(&mut app, KeyCode::Right, t0);
+        press(&mut app, KeyCode::Enter, t0);
+        assert_eq!(session(&app).remaining, secs(180.0));
+    }
+
+    #[test]
+    fn esc_leaves_practice_for_the_menu_then_quits() {
         let (mut app, t0) = new_app();
         press(&mut app, KeyCode::Esc, t0);
+        assert!(on_menu(&app));
+        assert!(!app.quit);
+        press(&mut app, KeyCode::Esc, t0);
         assert!(app.quit);
+    }
 
+    #[test]
+    fn esc_on_summary_returns_to_the_menu() {
+        let (mut app, t0) = new_app();
+        app.tick(t0 + DURATION);
+        press(&mut app, KeyCode::Esc, t0 + DURATION);
+        assert!(on_menu(&app));
+    }
+
+    #[test]
+    fn ctrl_c_quits_from_anywhere() {
         let (mut app, t0) = new_app();
         app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL), t0);
         assert!(app.quit);
+        let Record::Session(session) = only_record(&mut app) else {
+            panic!("expected the session to be recorded");
+        };
+        assert!(!session.completed);
     }
 
     #[test]

@@ -39,9 +39,17 @@ impl Bitmap {
     /// one of its characters.
     pub fn text(text: &str) -> Option<Self> {
         let glyphs: Vec<_> = text.chars().map(font::glyph).collect::<Option<_>>()?;
-        let width = glyphs.iter().map(|g| g[0].len()).sum::<usize>()
-            + font::GAP * glyphs.len().saturating_sub(1);
-        let mut bitmap = Self::new(width, font::HEIGHT);
+        Some(Self::from_glyphs(glyphs.iter().map(|g| &g[..]), font::GAP))
+    }
+
+    /// Lays glyphs out left to right, `gap` pixels apart, aligned at the
+    /// top. Each glyph is rows of `#` (on) and `.` (off).
+    pub fn from_glyphs<'a>(glyphs: impl IntoIterator<Item = &'a [&'a str]>, gap: usize) -> Self {
+        let glyphs: Vec<_> = glyphs.into_iter().collect();
+        let width =
+            glyphs.iter().map(|g| g[0].len()).sum::<usize>() + gap * glyphs.len().saturating_sub(1);
+        let height = glyphs.iter().map(|g| g.len()).max().unwrap_or(0);
+        let mut bitmap = Self::new(width, height);
         let mut x0 = 0;
         for rows in glyphs {
             for (y, row) in rows.iter().enumerate() {
@@ -51,9 +59,9 @@ impl Bitmap {
                     }
                 }
             }
-            x0 += rows[0].len() + font::GAP;
+            x0 += rows[0].len() + gap;
         }
-        Some(bitmap)
+        bitmap
     }
 
     /// Whether the pixel at `(x, y)` is on. Pixels outside are off.
@@ -75,7 +83,10 @@ pub enum Scale {
 
 impl Scale {
     /// Largest first.
-    const ALL: [Scale; 3] = [Scale::Large, Scale::Medium, Scale::Small];
+    pub const ALL: &[Scale] = &[Scale::Large, Scale::Medium, Scale::Small];
+
+    /// The scales whose pixels are square, largest first.
+    pub const SQUARE: &[Scale] = &[Scale::Large, Scale::Small];
 
     /// The cells a bitmap takes up at this scale.
     fn size(self, bitmap: &Bitmap) -> Size {
@@ -89,28 +100,42 @@ impl Scale {
     }
 }
 
-/// Text drawn in the bitmap font at the largest scale that fits, or as
-/// ordinary text if even the smallest does not.
+/// A bitmap drawn at the largest scale that fits, or ordinary text if
+/// even the smallest does not.
 pub struct BigText<'a> {
     text: &'a str,
     bitmap: Option<Bitmap>,
+    scales: &'static [Scale],
 }
 
 impl<'a> BigText<'a> {
+    /// `text` in the bitmap font.
     pub fn new(text: &'a str) -> Self {
+        Self::bitmap(Bitmap::text(text), text)
+    }
+
+    /// Any bitmap, with `text` to show if it does not fit.
+    pub fn bitmap(bitmap: Option<Bitmap>, text: &'a str) -> Self {
         Self {
             text,
-            bitmap: Bitmap::text(text),
+            bitmap,
+            scales: Scale::ALL,
         }
+    }
+
+    /// Limits the scales it may be drawn at.
+    pub fn scales(mut self, scales: &'static [Scale]) -> Self {
+        self.scales = scales;
+        self
     }
 
     /// The scale it would be drawn at in `area`, and the cells it would
     /// take up. `None` means it would be drawn as ordinary text.
     pub fn fit(&self, area: Size) -> Option<(Scale, Size)> {
         let bitmap = self.bitmap.as_ref()?;
-        Scale::ALL
-            .into_iter()
-            .map(|scale| (scale, scale.size(bitmap)))
+        self.scales
+            .iter()
+            .map(|&scale| (scale, scale.size(bitmap)))
             .find(|(_, size)| size.width <= area.width && size.height <= area.height)
     }
 

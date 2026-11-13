@@ -55,7 +55,8 @@ pub enum ConfigCommand {
     Show,
 }
 
-/// Overrides for one run. They change nothing on disk.
+/// Overrides for one run. They change nothing on disk, and stay in effect
+/// when returning to the menu.
 #[derive(Debug, Default, Args)]
 pub struct SessionArgs {
     /// Session length in seconds.
@@ -68,6 +69,12 @@ pub struct SessionArgs {
 }
 
 impl SessionArgs {
+    /// Whether any flag was given, in which case a session starts straight
+    /// away instead of opening the menu.
+    pub fn is_set(&self) -> bool {
+        self.duration.is_some() || self.ops.is_some()
+    }
+
     /// Applies these overrides on top of `config`.
     pub fn apply(&self, config: &mut Config) {
         if let Some(duration) = self.duration {
@@ -102,6 +109,8 @@ mod tests {
         assert_eq!(config.session.duration, 60);
         assert_eq!(config.problems.ops, [Op::Add, Op::Sub]);
         assert_eq!(config.problems.add_sub, Config::default().problems.add_sub);
+        assert!(cli.session.is_set());
+        assert!(!parse(&[]).unwrap().session.is_set());
     }
 
     #[test]
