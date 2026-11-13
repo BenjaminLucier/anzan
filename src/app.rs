@@ -18,7 +18,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub use self::{
     dashboard::{Dashboard, Report, Tab},
-    menu::{Menu, Row},
+    menu::{Item, Menu, Panel},
     session::{Correction, Epoch, MAX_INPUT, Session, Summary},
 };
 use crate::{
@@ -147,11 +147,14 @@ impl App {
                 self.open_dashboard(now);
             }
             (Screen::Menu(menu), code) => match code {
-                KeyCode::Up | KeyCode::Char('k') => menu.up(),
-                KeyCode::Down | KeyCode::Char('j') => menu.down(),
-                KeyCode::Left | KeyCode::Char('h') => menu.change(&mut self.config, false),
-                KeyCode::Right | KeyCode::Char('l') | KeyCode::Char(' ') => {
-                    menu.change(&mut self.config, true);
+                KeyCode::Up | KeyCode::Char('k') => menu.step(&mut self.config, true),
+                KeyCode::Down | KeyCode::Char('j') => menu.step(&mut self.config, false),
+                KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => menu.switch(true),
+                KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => menu.switch(false),
+                KeyCode::Char(' ') => menu.activate(&mut self.config),
+                KeyCode::Char('a') => menu.toggle_group(&mut self.config),
+                KeyCode::Char(c) if c.is_ascii_digit() => {
+                    menu.focus(c.to_digit(10).unwrap_or(0) as usize);
                 }
                 _ => {}
             },
@@ -448,8 +451,8 @@ mod tests {
             t0,
             wall_epoch(),
         );
-        press(&mut app, KeyCode::Down, t0);
-        press(&mut app, KeyCode::Right, t0);
+        press(&mut app, KeyCode::Tab, t0);
+        press(&mut app, KeyCode::Char(' '), t0);
         press(&mut app, KeyCode::Enter, t0);
         assert_eq!(session(&app).remaining, secs(180.0));
     }

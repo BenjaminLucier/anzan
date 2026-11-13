@@ -171,7 +171,7 @@ impl Group {
             Group::Arithmetic => "Arithmetic",
             Group::Powers => "Powers and roots",
             Group::NumberTheory => "Number theory",
-            Group::Percentages => "Fractions and percentages",
+            Group::Percentages => "Fractions & percent",
             Group::Finance => "Finance",
             Group::Probability => "Probability",
         }
