@@ -328,18 +328,27 @@ fn render_practice(
 }
 
 /// The answer box, with the terminal cursor just after what has been typed.
+///
+/// Typing starts in the middle of the box, under the question, and
+/// runs to the right, so what has been typed stays where it is as more
+/// is added. Centring it instead would nudge every character sideways
+/// on each key. Only an answer too long for half the box moves left to
+/// make room.
 fn render_input(input: &str, t: &Theme, frame: &mut Frame, area: Rect) {
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(t.border(true));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    frame.render_widget(Line::from(input).centered(), inner);
 
     // Input is ASCII, so its length in bytes is its width in cells.
     let width = input.len() as u16;
-    let x = inner.x + inner.width.saturating_sub(width) / 2 + width;
-    frame.set_cursor_position(Position::new(x, inner.y));
+    // Room is kept after the text for the cursor.
+    let start = (inner.width / 2).min(inner.width.saturating_sub(width + 1));
+    let text = Rect::new(inner.x + start, inner.y, width.min(inner.width), 1).intersection(inner);
+    frame.render_widget(Line::from(input), text);
+    let cursor = (inner.x + start + width).min(inner.right().saturating_sub(1));
+    frame.set_cursor_position(Position::new(cursor, inner.y));
 }
 
 fn render_summary(summary: &Summary, t: &Theme, frame: &mut Frame, area: Rect) {
@@ -702,6 +711,49 @@ mod tests {
         assert_eq!(question, None);
         let (narrow, _) = draw_scaled(&practising(Kind::Add), 40, 24);
         assert_eq!(row_of(&wide, "╭"), row_of(&narrow, "╭"));
+    }
+
+    /// Where the first `9` typed is on screen, and where the cursor is.
+    fn typed(app: &App) -> (usize, u16) {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| render(app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let row: String = (0..80).map(|x| buffer[(x, 13)].symbol()).collect();
+        let first = row.chars().position(|c| c == '9').expect("a 9 in the box");
+        (first, terminal.get_cursor_position().unwrap().x)
+    }
+
+    #[test]
+    fn typing_does_not_move_what_is_typed() {
+        // No default addition is answered by a row of nines this long.
+        let mut app = practising(Kind::Add);
+        press(&mut app, &[KeyCode::Char('9')]);
+        let (first, cursor) = typed(&app);
+        assert_eq!(
+            (first, cursor),
+            (40, 41),
+            "starts mid-box, under the question"
+        );
+        for typed_so_far in 2..=10 {
+            press(&mut app, &[KeyCode::Char('9')]);
+            assert_eq!(typed(&app), (first, cursor + typed_so_far - 1));
+        }
+        // Past half the box it gives way, a cell a key, and stays inside.
+        for _ in 10..MAX_INPUT {
+            press(&mut app, &[KeyCode::Char('9')]);
+        }
+        let (first, cursor) = typed(&app);
+        let screen = draw(&app, 80, 24);
+        let (left, right) = (
+            screen[13].chars().position(|c| c == '│').unwrap(),
+            screen[13].chars().rev().position(|c| c == '│').unwrap(),
+        );
+        assert!(
+            left < first && usize::from(cursor) < 80 - 1 - right,
+            "{}",
+            screen[13]
+        );
+        assert!(screen[13].contains(&"9".repeat(MAX_INPUT)));
     }
 
     #[test]

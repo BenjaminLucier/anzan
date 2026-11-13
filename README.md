@@ -13,7 +13,7 @@ find your weak spots and work on them.
                                 8 × 39
 
                         ┌──────────────────────┐
-                        │          31          │
+                        │           31         │
                         └──────────────────────┘
 
                                 Tab skip
