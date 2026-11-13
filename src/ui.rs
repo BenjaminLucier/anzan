@@ -48,7 +48,7 @@ pub fn render(app: &App, frame: &mut Frame) {
             render_practice(session, frame, body);
         }
         Screen::Summary(summary) => render_summary(summary, frame, body),
-        Screen::Dashboard(dash) => dashboard::render(dash, frame, body),
+        Screen::Dashboard(dash) => dashboard::render(dash, app.history(), frame, body),
     }
 }
 

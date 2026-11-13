@@ -17,7 +17,7 @@ use rand::{SeedableRng, rngs::StdRng};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub use self::{
-    dashboard::{Dashboard, Report, Tab},
+    dashboard::{Dashboard, RECENT, Report, Side},
     menu::{Item, Menu, Panel},
     session::{Correction, Epoch, MAX_INPUT, Session, Summary},
 };
@@ -176,10 +176,14 @@ impl App {
                 self.screen = Screen::Menu(Menu::default());
             }
             (Screen::Dashboard(dash), code) => match code {
-                KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => dash.next(),
-                KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => dash.previous(),
+                KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => dash.switch(true),
+                KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => dash.switch(false),
+                KeyCode::Up | KeyCode::Char('k') => dash.step(true),
+                KeyCode::Down | KeyCode::Char('j') => dash.step(false),
+                KeyCode::PageDown | KeyCode::Char('J') => dash.scroll(true, 10),
+                KeyCode::PageUp | KeyCode::Char('K') => dash.scroll(false, 10),
                 KeyCode::Char(c) if c.is_ascii_digit() => {
-                    dash.select(c.to_digit(10).unwrap_or(0) as usize);
+                    dash.focus(c.to_digit(10).unwrap_or(0) as usize);
                 }
                 _ => {}
             },
@@ -671,12 +675,12 @@ mod tests {
         let Screen::Dashboard(dash) = &app.screen else {
             panic!("not on the dashboard");
         };
-        assert_eq!(dash.report.sessions, 1);
+        assert_eq!(dash.report.sessions.len(), 1);
         press(&mut app, KeyCode::Right, t0 + DURATION);
         let Screen::Dashboard(dash) = &app.screen else {
             panic!("not on the dashboard");
         };
-        assert_eq!(dash.tab, Tab::Speed);
+        assert_eq!(dash.focus, Side::Kinds);
         press(&mut app, KeyCode::Esc, t0 + DURATION);
         assert!(on_menu(&app));
         press(&mut app, KeyCode::Char('d'), t0 + DURATION);

@@ -1,4 +1,5 @@
-//! The statistics dashboard: tabs of numbers about past practice.
+//! The statistics dashboard: lists on the left, and on the right the
+//! details of whatever is selected in the focused list.
 
 use std::collections::BTreeMap;
 
@@ -14,70 +15,64 @@ use crate::{
         model::{Baselines, Skill},
         report::{self, Cost, Fingerprint, KindStats},
     },
+    store::SessionRecord,
 };
 
-/// Attempts this recent count as recent on the speed tab.
-const RECENT: SignedDuration = SignedDuration::from_hours(7 * 24);
+/// Attempts this recent count as recent.
+pub const RECENT: SignedDuration = SignedDuration::from_hours(7 * 24);
 
 /// Items seen fewer times than this are not listed as weak spots.
 const MIN_SEEN: u32 = 2;
 
+/// Most weak spots to list.
+const WEAK_SPOTS: usize = 100;
+
+/// A list on the left of the dashboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Tab {
+pub enum Side {
     #[default]
-    Overview,
-    Speed,
-    Facts,
-    Activity,
+    Summary,
+    Kinds,
+    Sessions,
     Weak,
 }
 
-impl Tab {
-    pub const ALL: [Tab; 5] = [
-        Tab::Overview,
-        Tab::Speed,
-        Tab::Facts,
-        Tab::Activity,
-        Tab::Weak,
-    ];
+impl Side {
+    pub const ALL: [Side; 4] = [Side::Summary, Side::Kinds, Side::Sessions, Side::Weak];
 
-    pub fn label(self) -> &'static str {
+    pub fn title(self) -> &'static str {
         match self {
-            Tab::Overview => "Overview",
-            Tab::Speed => "Speed",
-            Tab::Facts => "Facts",
-            Tab::Activity => "Activity",
-            Tab::Weak => "Weak spots",
+            Side::Summary => "Summary",
+            Side::Kinds => "Kinds",
+            Side::Sessions => "Sessions",
+            Side::Weak => "Weak spots",
         }
     }
 
     pub fn index(self) -> usize {
-        Tab::ALL.iter().position(|&t| t == self).unwrap_or(0)
-    }
-
-    fn step(self, by: isize) -> Tab {
-        let n = Tab::ALL.len() as isize;
-        Tab::ALL[(self.index() as isize + by).rem_euclid(n) as usize]
+        Side::ALL.iter().position(|&s| s == self).unwrap_or(0)
     }
 }
 
-/// Everything the dashboard shows, worked out when it opens.
+/// Everything the dashboard shows that is costly to work out, computed
+/// when it opens.
 #[derive(Debug, Clone)]
 pub struct Report {
+    pub now: Timestamp,
+    pub tz: TimeZone,
+    pub today: Date,
     pub attempts: usize,
-    pub sessions: usize,
     pub damaged: usize,
     pub kinds: Vec<KindStats>,
+    /// Newest first.
+    pub sessions: Vec<SessionRecord>,
     /// Scores of finished sessions with the current settings.
     pub trend: Vec<u32>,
-    pub curve_all: Vec<(f64, f64)>,
-    pub curve_recent: Vec<(f64, f64)>,
     pub overall: f64,
     pub grid: Vec<Vec<Option<Skill>>>,
     pub carries: Vec<Cost>,
     pub borrows: Vec<Cost>,
     pub activity: BTreeMap<Date, u32>,
-    pub today: Date,
     pub hardest: Vec<(Feature, Skill)>,
 }
 
@@ -90,22 +85,21 @@ impl Report {
         let session = &config.session;
         let fingerprint =
             Fingerprint::new(session.duration, session.submit, session.mode, &problems);
-        let since = now - RECENT;
         Self {
+            now,
+            tz: tz.clone(),
+            today: now.to_zoned(tz.clone()).date(),
             attempts: attempts.len(),
-            sessions: history.sessions.len(),
             damaged: history.damaged,
             kinds: report::by_kind(attempts),
+            sessions: newest_first(&history.sessions),
             trend: report::trend(&history.sessions, &fingerprint),
-            curve_all: report::percentile_curve(attempts),
-            curve_recent: report::percentile_curve(attempts.iter().filter(|a| a.ts >= since)),
             overall: model.overall(),
             grid: report::fact_grid(&model),
             carries: report::carry_costs(attempts, &baselines, Op::Add),
             borrows: report::carry_costs(attempts, &baselines, Op::Sub),
             activity: report::activity(attempts, tz),
-            today: now.to_zoned(tz.clone()).date(),
-            hardest: report::hardest(&model, MIN_SEEN, 20),
+            hardest: report::hardest(&model, MIN_SEEN, WEAK_SPOTS),
         }
     }
 
@@ -130,35 +124,87 @@ impl Report {
         }
         streak
     }
+
+    /// How many rows the list for `side` has.
+    pub fn len(&self, side: Side) -> usize {
+        match side {
+            Side::Summary => 1,
+            Side::Kinds => self.kinds.len(),
+            Side::Sessions => self.sessions.len(),
+            Side::Weak => self.hardest.len(),
+        }
+    }
+}
+
+fn newest_first(sessions: &[SessionRecord]) -> Vec<SessionRecord> {
+    let mut sessions = sessions.to_vec();
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.start));
+    sessions
 }
 
 #[derive(Debug, Clone)]
 pub struct Dashboard {
-    pub tab: Tab,
+    pub focus: Side,
+    /// The selected row of each list, indexed like `Side::ALL`.
+    selected: [usize; 4],
+    /// How far the details pane is scrolled.
+    pub scroll: u16,
     pub report: Report,
 }
 
 impl Dashboard {
     pub fn new(report: Report) -> Self {
         Self {
-            tab: Tab::default(),
+            focus: Side::default(),
+            selected: [0; 4],
+            scroll: 0,
             report,
         }
     }
 
-    pub fn next(&mut self) {
-        self.tab = self.tab.step(1);
+    pub fn selected(&self, side: Side) -> usize {
+        self.selected[side.index()]
     }
 
-    pub fn previous(&mut self) {
-        self.tab = self.tab.step(-1);
+    /// Moves focus to the next list (`true`) or the previous one.
+    pub fn switch(&mut self, forwards: bool) {
+        let n = Side::ALL.len();
+        let i = self.focus.index();
+        self.focus = Side::ALL[if forwards {
+            (i + 1) % n
+        } else {
+            (i + n - 1) % n
+        }];
+        self.scroll = 0;
     }
 
-    /// Jumps to the tab numbered `n`, counting from 1.
-    pub fn select(&mut self, n: usize) {
-        if let Some(&tab) = n.checked_sub(1).and_then(|i| Tab::ALL.get(i)) {
-            self.tab = tab;
+    /// Focuses the list numbered `n` from 1.
+    pub fn focus(&mut self, n: usize) {
+        if let Some(&side) = n.checked_sub(1).and_then(|i| Side::ALL.get(i)) {
+            self.focus = side;
+            self.scroll = 0;
         }
+    }
+
+    /// Moves the selection in the focused list up (`true`) or down.
+    pub fn step(&mut self, up: bool) {
+        let last = self.report.len(self.focus).saturating_sub(1);
+        let row = &mut self.selected[self.focus.index()];
+        *row = if up {
+            row.saturating_sub(1)
+        } else {
+            (*row + 1).min(last)
+        };
+        self.scroll = 0;
+    }
+
+    /// Scrolls the details pane down (`true`) or up by `rows`.
+    pub fn scroll(&mut self, down: bool, rows: u16) {
+        self.scroll = if down {
+            self.scroll.saturating_add(rows)
+        } else {
+            self.scroll.saturating_sub(rows)
+        };
     }
 }
 
@@ -178,16 +224,22 @@ mod tests {
     }
 
     #[test]
-    fn tabs_wrap() {
+    fn focus_cycles_and_selection_stays_in_range() {
         let mut d = Dashboard::new(report(&[]));
-        d.previous();
-        assert_eq!(d.tab, Tab::Weak);
-        d.next();
-        assert_eq!(d.tab, Tab::Overview);
-        d.select(3);
-        assert_eq!(d.tab, Tab::Facts);
-        d.select(9);
-        assert_eq!(d.tab, Tab::Facts);
+        d.switch(false);
+        assert_eq!(d.focus, Side::Weak);
+        d.switch(true);
+        assert_eq!(d.focus, Side::Summary);
+        d.focus(2);
+        assert_eq!(d.focus, Side::Kinds);
+        d.focus(9);
+        assert_eq!(d.focus, Side::Kinds);
+        // No kinds practised: the selection cannot move.
+        d.step(false);
+        assert_eq!(d.selected(Side::Kinds), 0);
+        d.scroll(true, 5);
+        d.step(true);
+        assert_eq!(d.scroll, 0);
     }
 
     #[test]
