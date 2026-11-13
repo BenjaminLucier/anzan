@@ -5,7 +5,6 @@
 
 mod bitmap;
 mod dashboard;
-mod font;
 mod grid;
 mod kanji;
 mod math;

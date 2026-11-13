@@ -10,12 +10,10 @@ find your weak spots and work on them.
 ```text
  1:52                           Score 7                        Esc menu
 
-                           ┏━┓       ╺━┓ ┏━┓
-                           ┣━┫   ╳    ━┫ ┗━┫
-                           ┗━┛       ╺━┛ ╺━┛
+                                8 × 39
 
                         ┌──────────────────────┐
-                        │          10          │
+                        │          31          │
                         └──────────────────────┘
 
                                 Tab skip
@@ -100,8 +98,8 @@ Answers can be written however is natural:
 The default is the four basic operations: addition and subtraction up to
 100 + 100, and multiplication and division up to 12 × 100.
 
-Questions are drawn in a hand-made font of box-drawing lines, with
-exponents raised, fractions stacked and roots under a radical.
+Questions are written in your terminal's own font, with exponents as
+superscripts, fractions stacked over a bar and roots under an overline.
 
 ## Modes
 

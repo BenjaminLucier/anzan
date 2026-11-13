@@ -32,48 +32,6 @@ impl Grid {
         }
     }
 
-    /// Text in the line font. Runs of characters without glyphs, such
-    /// as words, are written as they are on the middle row, and `.` and `,`
-    /// sit tight against their neighbours.
-    pub fn text(text: &str) -> Self {
-        use super::font;
-        // Each block is a glyph or a run of plain characters, with whether
-        // it joins the previous block without a gap and whether it is plain.
-        let mut blocks: Vec<([String; font::HEIGHT], bool, bool)> = Vec::new();
-        let mut join_next = false;
-        for c in text.chars() {
-            let tight = font::is_tight(c);
-            match font::glyph(c) {
-                Some(rows) => blocks.push((rows.map(str::to_owned), tight || join_next, false)),
-                None => match blocks.last_mut() {
-                    Some((rows, _, true)) => rows[1].push(c),
-                    _ => blocks.push(([" ".into(), c.into(), " ".into()], join_next, true)),
-                },
-            }
-            join_next = tight;
-        }
-        let width_of = |rows: &[String; font::HEIGHT]| rows[1].chars().count();
-        let width = blocks
-            .iter()
-            .enumerate()
-            .map(|(i, (rows, join, _))| width_of(rows) + usize::from(i > 0 && !join) * font::GAP)
-            .sum();
-        let mut grid = Self::new(width, font::HEIGHT);
-        let mut x = 0;
-        for (i, (rows, join, _)) in blocks.iter().enumerate() {
-            if i > 0 && !join {
-                x += font::GAP;
-            }
-            for (y, row) in rows.iter().enumerate() {
-                for (dx, c) in row.chars().enumerate() {
-                    grid.put(x + dx, y, c);
-                }
-            }
-            x += width_of(rows);
-        }
-        grid
-    }
-
     pub fn width(&self) -> usize {
         self.width
     }
