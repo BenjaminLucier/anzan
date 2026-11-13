@@ -73,6 +73,14 @@ pub enum Record {
     Session(SessionRecord),
 }
 
+/// A change to what is stored.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Change {
+    Save(Record),
+    /// Delete the whole history.
+    Clear,
+}
+
 /// Rows read back from a file, minus any that could not be parsed.
 #[derive(Debug)]
 pub struct Loaded<T> {
@@ -100,6 +108,26 @@ impl Store {
 
     pub fn sessions_path(&self) -> PathBuf {
         self.dir.join("sessions.jsonl")
+    }
+
+    pub fn apply(&self, change: &Change) -> Result<()> {
+        match change {
+            Change::Save(record) => self.save(record),
+            Change::Clear => self.clear(),
+        }
+    }
+
+    /// Deletes every attempt and session. Nothing else in the folder is
+    /// touched, and having nothing to delete is not an error.
+    pub fn clear(&self) -> Result<()> {
+        for path in [self.attempts_path(), self.sessions_path()] {
+            match fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(e) if e.kind() == ErrorKind::NotFound => {}
+                Err(e) => return Err(e).with_context(|| format!("deleting {}", path.display())),
+            }
+        }
+        Ok(())
     }
 
     pub fn save(&self, record: &Record) -> Result<()> {
@@ -240,6 +268,56 @@ mod tests {
         };
         store.append_attempt(&skip).unwrap();
         assert_eq!(store.attempts().unwrap().rows.last(), Some(&skip));
+    }
+
+    fn session() -> SessionRecord {
+        SessionRecord {
+            id: "00c0ffee00c0ffee".into(),
+            start: "2026-11-13T10:00:00Z".parse().unwrap(),
+            end: "2026-11-13T10:02:00Z".parse().unwrap(),
+            duration: 120,
+            score: 41,
+            completed: true,
+            submit: Submit::Enter,
+            mode: Mode::Oni,
+            problems: serde_json::json!({"kinds": ["add"]}),
+        }
+    }
+
+    #[test]
+    fn sessions_round_trip_and_old_rows_take_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        store
+            .apply(&Change::Save(Record::Session(session())))
+            .unwrap();
+        assert_eq!(store.sessions().unwrap().rows, [session()]);
+        assert!(store.attempts().unwrap().rows.is_empty());
+        // Rows written before sessions recorded how they were played.
+        let old = r#"{"id":"a","start":"2026-11-13T10:00:00Z","end":"2026-11-13T10:02:00Z","duration":120,"score":3,"completed":false,"problems":{}}"#;
+        let old: SessionRecord = serde_json::from_str(old).unwrap();
+        assert_eq!((old.submit, old.mode), (Submit::Auto, Mode::Jiyu));
+    }
+
+    #[test]
+    fn clear_deletes_the_history_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path());
+        // With nothing there, not even the folder, there is nothing to do.
+        Store::new(dir.path().join("missing")).clear().unwrap();
+        store.clear().unwrap();
+
+        store.append_attempt(&attempt()).unwrap();
+        store.append_session(&session()).unwrap();
+        fs::write(dir.path().join("notes.txt"), "mine").unwrap();
+        store.apply(&Change::Clear).unwrap();
+        assert!(store.attempts().unwrap().rows.is_empty());
+        assert!(store.sessions().unwrap().rows.is_empty());
+        assert!(!store.attempts_path().exists() && !store.sessions_path().exists());
+        assert!(dir.path().join("notes.txt").exists());
+        // And it can be written to again.
+        store.append_attempt(&attempt()).unwrap();
+        assert_eq!(store.attempts().unwrap().rows.len(), 1);
     }
 
     #[test]

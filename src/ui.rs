@@ -15,13 +15,14 @@ use std::time::Duration;
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Margin, Position, Rect},
+    style::Style,
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Clear, Padding, Paragraph},
 };
 
 use self::grid::Drawing;
 use crate::{
-    app::{App, MAX_INPUT, Screen, Session, Summary},
+    app::{App, MAX_INPUT, Overlay, Screen, Session, Summary},
     config::Submit,
     theme::Theme,
 };
@@ -51,8 +52,10 @@ pub fn render(app: &App, frame: &mut Frame) {
         Screen::Summary(summary) => render_summary(summary, t, frame, body),
         Screen::Dashboard(dash) => dashboard::render(dash, app.history(), t, frame, body),
     }
-    if app.help {
-        render_help(&app.screen, &app.paths, t, frame);
+    match app.overlay {
+        Some(Overlay::Help) => render_help(&app.screen, &app.paths, t, frame),
+        Some(Overlay::ConfirmDelete) => render_confirm_delete(app, t, frame),
+        None => {}
     }
 }
 
@@ -78,6 +81,7 @@ const DASHBOARD_KEYS: &[(&str, &str)] = &[
     ("↑ ↓ j k", "select"),
     ("PgDn PgUp J K", "scroll the details"),
     ("t", "next colour theme"),
+    ("X", "delete all history, after asking"),
     ("?", "this help"),
     ("Esc q", "back to the menu"),
 ];
@@ -126,6 +130,41 @@ fn render_help(screen: &Screen, paths: &[(&str, String)], t: &Theme, frame: &mut
         lines.push(Line::default());
     }
     lines.push(Line::from("Esc or ? to close").style(t.muted()));
+    popup(" Keys ", lines, t.border(true), t, frame);
+}
+
+/// Asks before deleting the history, saying what will go.
+fn render_confirm_delete(app: &App, t: &Theme, frame: &mut Frame) {
+    let history = app.history();
+    let mut lines = vec![
+        Line::from(format!(
+            "This deletes all {} attempts and {} sessions,",
+            history.attempts.len(),
+            history.sessions.len()
+        )),
+        Line::from("and they cannot be brought back."),
+        Line::default(),
+    ];
+    if let Some((_, folder)) = app.paths.iter().find(|(what, _)| *what == "history") {
+        lines.push(Line::from(vec![
+            Span::from("They are kept in ").style(t.muted()),
+            Span::from(folder.clone()).style(t.info()),
+        ]));
+    }
+    lines.extend([
+        Line::from("`anzan export` saves a copy first.").style(t.muted()),
+        Line::default(),
+        Line::from(vec![
+            Span::from("y").style(t.bad().bold()),
+            Span::from(" delete everything · any other key keeps it").style(t.muted()),
+        ]),
+    ]);
+    popup(" Delete history? ", lines, t.bad().bold(), t, frame);
+}
+
+/// A bordered box in the middle of the screen, just big enough for
+/// `lines`.
+fn popup(title: &str, lines: Vec<Line>, border: Style, t: &Theme, frame: &mut Frame) {
     let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4;
     let height = lines.len() as u16 + 2;
     let area = frame
@@ -134,9 +173,9 @@ fn render_help(screen: &Screen, paths: &[(&str, String)], t: &Theme, frame: &mut
     frame.render_widget(Clear, area);
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(t.border(true))
+        .border_style(border)
         .style(t.base())
-        .title(Line::from(" Keys ").style(t.border(true)))
+        .title(Line::from(title).style(border))
         .padding(Padding::horizontal(1));
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
@@ -391,9 +430,12 @@ mod tests {
         summary.tick(Instant::now() + Duration::from_secs(600));
         let mut scrolled = dashboard('3', 2);
         press(&mut scrolled, &[KeyCode::PageDown; 5]);
+        let mut confirm = dashboard('1', 0);
+        press(&mut confirm, &[KeyCode::Char('X')]);
         let mut screens = vec![
             app(),
             help,
+            confirm,
             summary,
             scrolled,
             practising(Kind::ExpectedValue),
@@ -439,6 +481,16 @@ mod tests {
                 "{width}×{height}: {corners:?}"
             );
         }
+    }
+
+    #[test]
+    fn deleting_says_what_will_go() {
+        let mut app = dashboard('1', 0).with_paths(vec![("history", "~/data/anzan".into())]);
+        press(&mut app, &[KeyCode::Char('X')]);
+        let screen = draw(&app, 100, 30);
+        row_of(&screen, "Delete history?");
+        row_of(&screen, "all 600 attempts and 20 sessions");
+        row_of(&screen, "~/data/anzan");
     }
 
     #[test]

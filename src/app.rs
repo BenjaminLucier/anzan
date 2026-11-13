@@ -25,25 +25,41 @@ use crate::{
     config::Config,
     history::History,
     stats::report::{self, Fingerprint, Report},
-    store::Record,
+    store::{Change, Record},
     theme::Theme,
 };
 
 /// Rows the details pane scrolls by.
 const PAGE: usize = 10;
 
-/// Records waiting to be saved, and the history they are already part of.
+/// Changes waiting to be made to the store, and the history as it will
+/// be once they are.
 #[derive(Debug, Default)]
 pub struct Journal {
-    pending: Vec<Record>,
+    pending: Vec<Change>,
     pub history: History,
 }
 
 impl Journal {
     pub fn push(&mut self, record: Record) {
         self.history.add(&record);
-        self.pending.push(record);
+        self.pending.push(Change::Save(record));
     }
+
+    /// Forgets everything, saved or not.
+    pub fn clear(&mut self) {
+        self.history = History::default();
+        self.pending = vec![Change::Clear];
+    }
+}
+
+/// A box over the screen that takes every key until it is closed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overlay {
+    /// The keys for the screen underneath.
+    Help,
+    /// Asking whether to delete the whole history.
+    ConfirmDelete,
 }
 
 #[expect(
@@ -68,8 +84,8 @@ pub struct App {
     journal: Journal,
     pub screen: Screen,
     pub quit: bool,
-    /// Whether the key help is showing over the screen.
-    pub help: bool,
+    /// What is showing over the screen, if anything.
+    pub overlay: Option<Overlay>,
     /// The themes on offer, never empty, and the one in use.
     themes: Vec<Theme>,
     theme: usize,
@@ -89,7 +105,7 @@ impl App {
             journal: Journal::default(),
             screen: Screen::Menu(Menu::default()),
             quit: false,
-            help: false,
+            overlay: None,
             themes: vec![Theme::terminal()],
             theme: 0,
             initial_theme: 0,
@@ -147,8 +163,9 @@ impl App {
         self
     }
 
-    /// Takes the records queued since the last call.
-    pub fn drain_records(&mut self) -> impl Iterator<Item = Record> + '_ {
+    /// Takes the changes queued since the last call, for the caller to
+    /// make to the store.
+    pub fn drain_changes(&mut self) -> impl Iterator<Item = Change> + '_ {
         self.journal.pending.drain(..)
     }
 
@@ -193,15 +210,27 @@ impl App {
         {
             return;
         }
-        // The help takes every key until it is closed.
-        if self.help {
-            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?' | 'q')) {
-                self.help = false;
+        match self.overlay.take() {
+            Some(Overlay::Help) => {
+                if !matches!(key.code, KeyCode::Esc | KeyCode::Char('?' | 'q')) {
+                    self.overlay = Some(Overlay::Help);
+                }
+                return;
             }
-            return;
+            // Only y deletes; anything else is a change of mind.
+            Some(Overlay::ConfirmDelete) => {
+                if key.code == KeyCode::Char('y') {
+                    self.journal.clear();
+                    self.open_dashboard(now);
+                }
+                return;
+            }
+            None => {}
         }
         match (&mut self.screen, key.code) {
-            (Screen::Menu(_) | Screen::Dashboard(_), KeyCode::Char('?')) => self.help = true,
+            (Screen::Menu(_) | Screen::Dashboard(_), KeyCode::Char('?')) => {
+                self.overlay = Some(Overlay::Help);
+            }
             (Screen::Menu(_), KeyCode::Esc | KeyCode::Char('q')) => self.quit = true,
             (Screen::Menu(_), KeyCode::Enter) => self.start(now),
             (Screen::Menu(_) | Screen::Dashboard(_), KeyCode::Char('t')) => self.cycle_theme(),
@@ -242,6 +271,12 @@ impl App {
             (Screen::Summary(_), KeyCode::Esc) => self.screen = Screen::Menu(Menu::default()),
             (Screen::Dashboard(_), KeyCode::Esc | KeyCode::Char('q')) => {
                 self.screen = Screen::Menu(Menu::default());
+            }
+            (Screen::Dashboard(_), KeyCode::Char('X')) => {
+                let history = &self.journal.history;
+                if !history.is_empty() || !history.sessions.is_empty() || history.damaged > 0 {
+                    self.overlay = Some(Overlay::ConfirmDelete);
+                }
             }
             (Screen::Dashboard(dash), code) => match code {
                 KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => dash.switch(true),
@@ -350,7 +385,12 @@ mod tests {
     }
 
     fn records(app: &mut App) -> Vec<Record> {
-        app.drain_records().collect()
+        app.drain_changes()
+            .map(|change| match change {
+                Change::Save(record) => record,
+                Change::Clear => panic!("history was cleared"),
+            })
+            .collect()
     }
 
     fn only_record(app: &mut App) -> Record {
@@ -800,18 +840,73 @@ mod tests {
             wall_epoch(),
         );
         press(&mut app, KeyCode::Char('?'), t0);
-        assert!(app.help);
+        assert_eq!(app.overlay, Some(Overlay::Help));
         press(&mut app, KeyCode::Enter, t0);
         assert!(
             on_menu(&app),
             "Enter must not start a session under the help"
         );
         press(&mut app, KeyCode::Esc, t0);
-        assert!(!app.help && !app.quit);
+        assert!(app.overlay.is_none() && !app.quit);
         // Typed during practice, ? is just a character.
         let (mut app, t0) = new_app();
         press(&mut app, KeyCode::Char('?'), t0);
-        assert!(!app.help);
+        assert!(app.overlay.is_none());
+    }
+
+    /// An app on the dashboard after a session with one answer, with
+    /// everything so far saved.
+    fn practised_app() -> (App, Instant) {
+        let (mut app, t0) = new_app();
+        let answer = session(&app).problem.answer().to_string();
+        type_str(&mut app, &answer, t0);
+        let end = t0 + DURATION;
+        app.tick(end);
+        records(&mut app);
+        press(&mut app, KeyCode::Char('d'), end);
+        (app, end)
+    }
+
+    #[test]
+    fn deleting_history_asks_first() {
+        let (mut app, now) = practised_app();
+        press(&mut app, KeyCode::Char('X'), now);
+        assert_eq!(app.overlay, Some(Overlay::ConfirmDelete));
+        // Enter, or anything but y, backs out and does nothing else.
+        press(&mut app, KeyCode::Enter, now);
+        assert!(app.overlay.is_none());
+        assert!(matches!(app.screen, Screen::Dashboard(_)));
+        assert_eq!(app.history().attempts.len(), 1);
+        assert_eq!(app.drain_changes().count(), 0);
+    }
+
+    #[test]
+    fn y_deletes_everything() {
+        let (mut app, now) = practised_app();
+        // A session abandoned just now, not yet saved, goes too.
+        press(&mut app, KeyCode::Esc, now);
+        press(&mut app, KeyCode::Enter, now);
+        press(&mut app, KeyCode::Esc, now);
+        assert_eq!(app.history().sessions.len(), 2);
+        press(&mut app, KeyCode::Char('d'), now);
+        press(&mut app, KeyCode::Char('X'), now);
+        press(&mut app, KeyCode::Char('y'), now);
+        assert!(app.overlay.is_none());
+        assert!(app.history().is_empty() && app.history().sessions.is_empty());
+        assert_eq!(app.drain_changes().collect::<Vec<_>>(), [Change::Clear]);
+        let Screen::Dashboard(dash) = &app.screen else {
+            panic!("not on the dashboard");
+        };
+        assert_eq!(dash.report.attempts, 0);
+        // With nothing left, there is nothing to ask about.
+        press(&mut app, KeyCode::Char('X'), now);
+        assert!(app.overlay.is_none());
+        // What is practised next is saved as usual.
+        press(&mut app, KeyCode::Esc, now);
+        press(&mut app, KeyCode::Enter, now);
+        let answer = session(&app).problem.answer().to_string();
+        type_str(&mut app, &answer, now);
+        assert_eq!(records(&mut app).len(), 1);
     }
 
     #[test]

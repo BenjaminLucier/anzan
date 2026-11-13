@@ -56,6 +56,7 @@ Choose what to practise, then press Enter.
 | d                | open the dashboard          |              |                    |
 | r                | undo changes made here      |              |                    |
 | t                | next colour theme           |              | next colour theme  |
+| X                |                             |              | delete all history |
 | ?                | key help                    |              | key help           |
 | Esc              | quit                        | back to menu | back to menu       |
 
@@ -211,6 +212,10 @@ one JSON object per line, easy to read with other tools. To export as CSV:
 anzan export attempts > attempts.csv
 anzan export sessions -o sessions.csv
 ```
+
+To start over, press `X` (capital) in the dashboard. It says what will be
+deleted and asks first; only `y` goes ahead, and both files are then
+removed for good, so export first if you may want them back.
 
 `ANZAN_CONFIG` and `ANZAN_DATA_DIR` override the two locations.
 

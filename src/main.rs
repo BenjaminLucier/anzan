@@ -62,7 +62,8 @@ fn practice(config: Config, config_path: &Path, start: bool) -> Result<()> {
 }
 
 /// Redraws after every key, and on each whole second while the clock runs.
-/// Saves whatever the app records as soon as it is recorded.
+/// Saves whatever the app records as soon as it is recorded, and deletes
+/// the history when the app says to.
 fn run(terminal: &mut DefaultTerminal, mut app: App, store: &Store) -> Result<()> {
     while !app.quit {
         app.tick(Instant::now());
@@ -80,8 +81,8 @@ fn run(terminal: &mut DefaultTerminal, mut app: App, store: &Store) -> Result<()
 }
 
 fn save(app: &mut App, store: &Store) -> Result<()> {
-    app.drain_records()
-        .try_for_each(|record| store.save(&record))
+    app.drain_changes()
+        .try_for_each(|change| store.apply(&change))
 }
 
 /// `path` with the home directory written as `~`, to keep it short.
