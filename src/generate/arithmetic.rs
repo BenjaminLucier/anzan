@@ -28,6 +28,19 @@ impl Default for AddSub {
 }
 
 impl AddSub {
+    /// An addition or a subtraction, with equal odds.
+    ///
+    /// # Panics
+    ///
+    /// Panics if either range is empty.
+    pub fn generate(&self, rng: &mut impl Rng) -> Problem {
+        if rng.random_bool(0.5) {
+            self.add(rng)
+        } else {
+            self.sub(rng)
+        }
+    }
+
     /// # Panics
     ///
     /// Panics if either range is empty.
@@ -91,6 +104,14 @@ mod tests {
         let s = AddSub::default();
         let mut rng = StdRng::seed_from_u64(0);
         assert!((0..10_000).all(|_| s.sub(&mut rng).answer() >= 2));
+    }
+
+    #[test]
+    fn generate_mixes_both_operations() {
+        let s = AddSub::default();
+        let mut rng = StdRng::seed_from_u64(0);
+        let ops: Vec<_> = (0..100).map(|_| s.generate(&mut rng).op).collect();
+        assert!(ops.contains(&Op::Add) && ops.contains(&Op::Sub));
     }
 
     /// Catches a half-open range sneaking in where an inclusive one belongs.

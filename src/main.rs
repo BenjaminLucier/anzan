@@ -1,37 +1,22 @@
 use std::io;
 
+use anzan::{app::App, generate::AddSub, ui};
 use ratatui::{
-    DefaultTerminal, Frame,
-    crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    layout::Constraint,
-    style::Stylize,
-    text::Line,
+    DefaultTerminal,
+    crossterm::event::{self, Event},
 };
 
 fn main() -> io::Result<()> {
-    ratatui::run(run)
+    let app = App::new(AddSub::default(), rand::make_rng());
+    ratatui::run(|terminal| run(terminal, app))
 }
 
-fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
-    loop {
-        terminal.draw(render)?;
-        if let Event::Key(key) = event::read()?
-            && key.is_press()
-            && is_quit(key)
-        {
-            return Ok(());
+fn run(terminal: &mut DefaultTerminal, mut app: App) -> io::Result<()> {
+    while !app.quit {
+        terminal.draw(|frame| ui::render(&app, frame))?;
+        if let Event::Key(key) = event::read()? {
+            app.handle_key(key);
         }
     }
-}
-
-fn render(frame: &mut Frame) {
-    let area = frame.area().centered_vertically(Constraint::Length(1));
-    frame.render_widget(Line::from("暗算 anzan").bold().centered(), area);
-}
-
-/// Esc quits. In raw mode Ctrl-C arrives as an ordinary key event, so it is
-/// handled here too.
-fn is_quit(key: KeyEvent) -> bool {
-    key.code == KeyCode::Esc
-        || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
+    Ok(())
 }
