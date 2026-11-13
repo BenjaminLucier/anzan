@@ -6,5 +6,6 @@ pub mod config;
 pub mod export;
 pub mod generate;
 pub mod problem;
+pub mod rational;
 pub mod store;
 pub mod ui;
