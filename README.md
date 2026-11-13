@@ -2,6 +2,29 @@
 
 A terminal trainer for mental math.
 
+Anzan asks a stream of questions against the clock: arithmetic, powers and
+roots, number theory, fractions and percentages, and finance. Every answer
+is saved. The history powers a statistics dashboard, and practice modes that
+find your weak spots and work on them.
+
+```text
+ 1:52                           Score 7                        Esc menu
+
+       ██████                                    ██          ████
+     ██      ██          ██      ██            ████        ██
+     ██      ██            ██  ██                ██      ██
+       ████████              ██                  ██      ████████
+             ██            ██  ██                ██      ██      ██
+           ██            ██      ██              ██      ██      ██
+       ████                                    ██████      ██████
+
+                        ┌──────────────────────┐
+                        │          10          │
+                        └──────────────────────┘
+
+                                Tab skip
+```
+
 ## The name
 
 **暗算** (*anzan*) is Japanese for mental calculation. 暗 (*an*) means "dark"
@@ -10,15 +33,149 @@ anything written down. The word is best known from soroban (abacus) training,
 where advanced students drop the physical abacus and move its beads in their
 heads, adding long columns of numbers in seconds.
 
+The practice modes take their names from Japanese too; see [Modes](#modes).
+
+## Install
+
+With a Rust toolchain (1.88 or later):
+
+```sh
+cargo install --path .
+```
+
+## Use
+
+Run `anzan` to open the menu. Choose a mode, a length, how answers are
+handed in and which kinds of problem to ask, then press Enter.
+
+| Key           | Menu            | Practice          | Dashboard  |
+|---------------|-----------------|-------------------|------------|
+| ↑ ↓ or j k    | choose a row    |                   |            |
+| ← → or h l    | change it       |                   | switch tab |
+| Enter         | start           | submit            |            |
+| Tab           |                 | skip              | next tab   |
+| d             | open dashboard  |                   |            |
+| 1–5           |                 |                   | jump to tab|
+| Esc           | quit            | back to menu      | back       |
+
+Any flag starts a session straight away, skipping the menu. The flags stay
+in effect afterwards, so when time is up you land in the menu with the same
+settings:
+
+```sh
+anzan --duration 60 --kinds mul,div
+anzan --mode oni -k add,sub,mul,div
+anzan --submit enter
+```
+
+### Answering
+
+With `submit = "auto"`, the default, a correct answer moves on as soon as it
+is typed; there is no need to press Enter. A wrong answer is never final,
+only slow, though Enter submits one on purpose. With `submit = "enter"`,
+nothing counts until Enter, so wrong answers count as wrong. After a miss or
+a skip, the question and its answer appear under the box.
+
+Answers can be written however is natural:
+
+- Numbers: `0.125`, `.125` and `1/8` are all the same. `$`, `%` and `≈` are
+  ignored, and so are thousands separators.
+- Fractions, when asked for: in lowest terms, such as `3/8`.
+- Yes or no: `y` or `n`, which also submits straight away.
+- Prime factors: in any order, as `2 2 2 3`, `2*2*2*3` or `2^3 3`.
+- Approximations, such as square roots: to the places asked, give or take
+  one in the last place.
+
+## Problems
+
+| Group                     | Kind (`--kinds` name)                                                    |
+|---------------------------|--------------------------------------------------------------------------|
+| Arithmetic                | `add`, `sub`, `mul`, `div`, `long_mul`                                   |
+| Powers and roots          | `square`, `cube`, `power_of_two`, `sqrt` (to two places)                 |
+| Number theory             | `divisible`, `prime`, `factorize`                                        |
+| Fractions and percentages | `convert` (fraction ↔ decimal ↔ percent), `percent_of`, `percent_change`, `successive` (+20% then −10%) |
+| Finance                   | `bps` (basis points), `compound` (growth over years), `rule_of_72` (doubling time) |
+
+The default is the four basic operations: addition and subtraction up to
+100 + 100, and multiplication and division up to 12 × 100.
+
+Questions are drawn properly in a hand-made bitmap font: exponents raised,
+fractions stacked and roots under a radical, scaled to fit the terminal.
+
+## Modes
+
+Every mode asks the same kinds of problem; they differ in which ones. All
+but Jiyū learn from your history: each attempt is scored by how much slower
+it was than your usual time for that kind of problem, with extra for
+misses, skips and backspaces. Those scores are averaged over skills, such
+as a times-table fact, a number of carries, or a single question.
+
+| Mode               | Meaning     | Problems                                                 |
+|--------------------|-------------|----------------------------------------------------------|
+| **Jiyū** 自由      | freedom     | At random.                                               |
+| **Kaizen** 改善    | improvement | At random, leaning gently toward weak spots.             |
+| **Keiko** 稽古     | practice    | New problems built on your weak skills.                  |
+| **Fukushū** 復習   | review      | Questions that gave you trouble, asked again.            |
+| **Oni** 鬼         | demon       | Relentlessly on your weakest skills.                     |
+| **Rakushō** 楽勝   | easy win    | Questions you know well, to warm up.                     |
+| **Custom**         |             | As set in the `[drill]` section of the config.           |
+
+With no history yet, every mode asks problems at random.
+
+## Statistics
+
+Press `d` on the menu or after a session.
+
+- **Overview**: totals and your daily streak; the score trend over sessions
+  with exactly the current settings, since scores are only comparable then;
+  and per kind, the number asked, accuracy, and median and 90th-percentile
+  times.
+- **Speed**: response time by percentile, over all time and the last week.
+- **Facts**: a times-table heatmap from 2 × 2 to 9 × 9, and how much carrying
+  in addition and borrowing in subtraction slows you down.
+- **Activity**: practice per day over the past year, a column per week.
+- **Weak spots**: the questions that have cost you the most.
+
+Times are compared only within the same submit mode by default, since
+pressing Enter takes time of its own.
+
+## Configuration
+
+Settings live in `$XDG_CONFIG_HOME/anzan/config.toml` (usually
+`~/.config/anzan/config.toml`, on macOS too). Every setting is optional.
+
+```sh
+anzan config init   # write a commented file holding every default
+anzan config show   # print the settings in effect
+anzan config path   # print where the file is read from
+```
+
+The file covers the session (length, submit mode, practice mode), the
+ranges each kind of problem draws from, the custom mode, and how attempts
+are scored. Scoring is recomputed from the raw history every time, so
+changing it rescores the past as well. Unknown keys are errors, so a typo
+never goes unnoticed.
+
+Changes made in the menu last until Anzan exits and are never written back.
+
+## History
+
+Every answer is appended to `$XDG_DATA_HOME/anzan/attempts.jsonl` (usually
+`~/.local/share/anzan`), and every session to `sessions.jsonl` beside it:
+one JSON object per line, easy to read with other tools. To export as CSV:
+
+```sh
+anzan export attempts > attempts.csv
+anzan export sessions -o sessions.csv
+```
+
+`ANZAN_CONFIG` and `ANZAN_DATA_DIR` override the two locations.
+
 ## Inspiration
 
 Anzan is inspired by [Zetamac](https://arithmetic.zetamac.com), the
 minimal timed arithmetic game, and uses its settings as the defaults for basic
 arithmetic.
-
-## Status
-
-Early development.
 
 ## License
 
