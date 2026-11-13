@@ -10,5 +10,6 @@ pub mod generate;
 pub mod number;
 pub mod problem;
 pub mod rational;
+pub mod stats;
 pub mod store;
 pub mod ui;

@@ -183,7 +183,7 @@ impl FromStr for Kind {
 }
 
 /// A way of writing a number between 0 and 1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Form {
     Fraction,
@@ -202,7 +202,7 @@ impl Form {
 }
 
 /// What a basis-point question asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BpTo {
     /// 150 bp as a percentage: 1.5.
@@ -251,7 +251,7 @@ impl Op {
 /// Operands are stored as numbers rather than as display text. Statistics
 /// derive features like carries and digit pairs from them. In stored
 /// history each problem is tagged with its `kind`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Problem {
     Add {
