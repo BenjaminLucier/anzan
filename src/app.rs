@@ -21,6 +21,7 @@ pub use self::{
 };
 use crate::{
     config::Config,
+    history::History,
     store::{Attempt, SessionRecord},
 };
 
@@ -29,6 +30,20 @@ use crate::{
 pub enum Record {
     Attempt(Attempt),
     Session(SessionRecord),
+}
+
+/// Records waiting to be saved, and the history they are already part of.
+#[derive(Debug, Default)]
+pub struct Journal {
+    pending: Vec<Record>,
+    pub history: History,
+}
+
+impl Journal {
+    pub fn push(&mut self, record: Record) {
+        self.history.add(&record);
+        self.pending.push(record);
+    }
 }
 
 #[expect(
@@ -47,7 +62,7 @@ pub struct App {
     pub config: Config,
     rng: StdRng,
     epoch: Epoch,
-    records: Vec<Record>,
+    journal: Journal,
     pub screen: Screen,
     pub quit: bool,
 }
@@ -59,10 +74,21 @@ impl App {
             config,
             rng,
             epoch: Epoch { instant: now, wall },
-            records: Vec::new(),
+            journal: Journal::default(),
             screen: Screen::Menu(Menu::default()),
             quit: false,
         }
+    }
+
+    /// Starts from what has been practised before.
+    pub fn with_history(mut self, history: History) -> Self {
+        self.journal.history = history;
+        self
+    }
+
+    /// Everything practised, including records not yet drained.
+    pub fn history(&self) -> &History {
+        &self.journal.history
     }
 
     /// Skips the menu and starts a session.
@@ -73,7 +99,7 @@ impl App {
 
     /// Takes the records queued since the last call.
     pub fn drain_records(&mut self) -> impl Iterator<Item = Record> + '_ {
-        self.records.drain(..)
+        self.journal.pending.drain(..)
     }
 
     /// Brings the clock up to date, ending the session if time is up.
@@ -127,13 +153,13 @@ impl App {
                 self.screen = Screen::Menu(Menu::default());
             }
             (Screen::Practice(session), KeyCode::Char(c)) => {
-                session.type_char(c, now, &mut self.records);
+                session.type_char(c, now, &mut self.journal);
             }
             (Screen::Practice(session), KeyCode::Backspace) => session.backspace(),
             (Screen::Practice(session), KeyCode::Enter) => {
-                session.submit_answer(now, &mut self.records);
+                session.submit_answer(now, &mut self.journal);
             }
-            (Screen::Practice(session), KeyCode::Tab) => session.skip(now, &mut self.records),
+            (Screen::Practice(session), KeyCode::Tab) => session.skip(now, &mut self.journal),
             (Screen::Summary(_), KeyCode::Enter) => self.start(now),
             (Screen::Summary(_), KeyCode::Esc) => self.screen = Screen::Menu(Menu::default()),
             _ => {}
@@ -152,7 +178,7 @@ impl App {
 
     fn end_session(&mut self, now: Instant, completed: bool) {
         if let Screen::Practice(session) = &self.screen {
-            self.records
+            self.journal
                 .push(Record::Session(session.record(now, completed)));
             self.screen = Screen::Summary(session.summary());
         }
@@ -582,5 +608,18 @@ mod tests {
         app.tick(t0 + DURATION);
         press(&mut app, KeyCode::Enter, t0 + DURATION);
         assert_ne!(session(&app).id, first);
+    }
+
+    #[test]
+    fn history_includes_records_not_yet_drained() {
+        let (mut app, t0) = new_app();
+        let answer = session(&app).problem.answer().to_string();
+        type_str(&mut app, &answer, t0);
+        assert_eq!(app.history().attempts.len(), 1);
+        app.tick(t0 + DURATION);
+        assert_eq!(app.history().sessions.len(), 1);
+        assert_eq!(records(&mut app).len(), 2);
+        // Draining saves them; the history keeps them.
+        assert_eq!(app.history().attempts.len(), 1);
     }
 }

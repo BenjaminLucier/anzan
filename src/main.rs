@@ -6,6 +6,7 @@ use anzan::{
     cli::{Cli, Command, ConfigCommand, Table},
     config::{self, Config},
     export,
+    history::History,
     store::{self, Store},
     ui,
 };
@@ -35,7 +36,8 @@ fn main() -> Result<()> {
 fn practice(config: Config, start: bool) -> Result<()> {
     let store = Store::new(store::data_dir()?);
     let now = Instant::now();
-    let mut app = App::new(config, rand::make_rng(), now, Timestamp::now());
+    let history = History::load(&store)?;
+    let mut app = App::new(config, rand::make_rng(), now, Timestamp::now()).with_history(history);
     if start {
         app = app.start_now(now);
     }

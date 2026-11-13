@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use jiff::{SignedDuration, Timestamp, Unit};
 use rand::{RngExt, rngs::StdRng};
 
-use super::Record;
+use super::{Journal, Record};
 use crate::{
     answer::Answer,
     config::{Config, Submit},
@@ -125,7 +125,7 @@ impl Session {
 
     /// Adds a character to the input. With auto-submit, the answer is
     /// checked after every keystroke, so a correct one moves on at once.
-    pub fn type_char(&mut self, c: char, now: Instant, out: &mut Vec<Record>) {
+    pub fn type_char(&mut self, c: char, now: Instant, out: &mut Journal) {
         // Input stays ASCII, so its length in bytes is its width on screen.
         let allowed = c.is_ascii_graphic() || (c == ' ' && !self.input.is_empty());
         if !allowed || self.input.len() >= MAX_INPUT {
@@ -140,7 +140,7 @@ impl Session {
 
     /// Hands in what has been typed, right or wrong. Does nothing if
     /// nothing has been typed, so a stray Enter costs nothing.
-    pub fn submit_answer(&mut self, now: Instant, out: &mut Vec<Record>) {
+    pub fn submit_answer(&mut self, now: Instant, out: &mut Journal) {
         if self.input.trim().is_empty() {
             return;
         }
@@ -149,17 +149,11 @@ impl Session {
     }
 
     /// Gives up on the current problem, showing its answer.
-    pub fn skip(&mut self, now: Instant, out: &mut Vec<Record>) {
+    pub fn skip(&mut self, now: Instant, out: &mut Journal) {
         self.finish_problem(now, false, true, out);
     }
 
-    fn finish_problem(
-        &mut self,
-        now: Instant,
-        correct: bool,
-        skipped: bool,
-        out: &mut Vec<Record>,
-    ) {
+    fn finish_problem(&mut self, now: Instant, correct: bool, skipped: bool, out: &mut Journal) {
         out.push(Record::Attempt(self.attempt(now, correct, skipped)));
         self.correction = (!correct).then(|| Correction {
             question: self.problem.to_string(),

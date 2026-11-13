@@ -7,6 +7,7 @@ pub mod config;
 pub mod export;
 pub mod expr;
 pub mod generate;
+pub mod history;
 pub mod number;
 pub mod problem;
 pub mod rational;
