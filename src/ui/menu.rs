@@ -160,7 +160,7 @@ fn item_line(item: Item, config: &Config, t: &Theme, selected: bool, width: u16)
             let label = Span::from(mode.label().to_owned());
             if !available(mode, config) {
                 // Listed, so that it can be found, but greyed out.
-                let text = format!(" ○ {kanji} {} · not set", mode.label());
+                let text = format!(" ○ {kanji} {} · off", mode.label());
                 return pad(vec![Span::from(text).style(t.muted())], width, selected, t);
             }
             vec![
@@ -208,8 +208,18 @@ fn pad(mut spans: Vec<Span<'static>>, width: u16, selected: bool, t: &Theme) -> 
 }
 
 /// `label` on the left and `value` on the right of a row `width` wide.
+/// A value too long for the row is cut short with an ellipsis, rather
+/// than running under the border.
 fn setting(t: &Theme, label: &str, value: &str, width: u16) -> Vec<Span<'static>> {
-    let pad = usize::from(width).saturating_sub(3 + label.len() + value.chars().count());
+    // A space before the label, between the two, and after the value.
+    let room = usize::from(width).saturating_sub(3 + label.len());
+    let value: String = if value.chars().count() > room {
+        let kept = value.chars().take(room.saturating_sub(1));
+        kept.chain(['…']).collect()
+    } else {
+        value.to_owned()
+    };
+    let pad = room.saturating_sub(value.chars().count());
     vec![
         Span::from(format!(" {label}{} ", " ".repeat(pad))),
         Span::from(format!("{value} ")).style(t.info()),
@@ -229,6 +239,20 @@ mod tests {
             let columns = arrange(width);
             let order: Vec<Panel> = columns.into_iter().flatten().collect();
             assert_eq!(order, Panel::all().collect::<Vec<_>>(), "width {width}");
+        }
+    }
+
+    #[test]
+    fn settings_fill_their_row_and_no_more() {
+        let t = Theme::terminal();
+        let text = |value: &str| -> String {
+            let spans = setting(&t, "Theme", value, 24);
+            spans.iter().map(|s| s.content.as_ref()).collect()
+        };
+        assert_eq!(text("auto"), " Theme             auto ");
+        assert_eq!(text("catppuccin-macchiato"), " Theme catppuccin-macc… ");
+        for value in ["a", "rose-pine-dawn", "catppuccin-macchiato"] {
+            assert_eq!(text(value).chars().count(), 24, "{value}");
         }
     }
 
