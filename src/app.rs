@@ -17,17 +17,20 @@ use rand::{SeedableRng, rngs::StdRng};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub use self::{
-    dashboard::{Dashboard, RECENT, Report, Side},
+    dashboard::{Dashboard, Side},
     menu::{Item, Menu, Panel, available},
     session::{Correction, Epoch, MAX_INPUT, Session, Summary},
 };
 use crate::{
     config::Config,
     history::History,
-    stats::report::{self, Fingerprint},
+    stats::report::{self, Fingerprint, Report},
     store::Record,
     theme::Theme,
 };
+
+/// Rows the details pane scrolls by.
+const PAGE: usize = 10;
 
 /// Records waiting to be saved, and the history they are already part of.
 #[derive(Debug, Default)]
@@ -245,8 +248,8 @@ impl App {
                 KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => dash.switch(false),
                 KeyCode::Up | KeyCode::Char('k') => dash.step(true),
                 KeyCode::Down | KeyCode::Char('j') => dash.step(false),
-                KeyCode::PageDown | KeyCode::Char('J') => dash.scroll(true, 10),
-                KeyCode::PageUp | KeyCode::Char('K') => dash.scroll(false, 10),
+                KeyCode::PageDown | KeyCode::Char('J') => dash.scroll(true, PAGE),
+                KeyCode::PageUp | KeyCode::Char('K') => dash.scroll(false, PAGE),
                 KeyCode::Char(c) if c.is_ascii_digit() => {
                     dash.focus(c.to_digit(10).unwrap_or(0) as usize);
                 }
@@ -268,9 +271,14 @@ impl App {
     }
 
     fn open_dashboard(&mut self, now: Instant) {
+        let session = &self.config.session;
+        let problems = serde_json::to_value(&self.config.problems).unwrap_or_default();
+        let fingerprint =
+            Fingerprint::new(session.duration, session.submit, session.mode, &problems);
         let report = Report::build(
             &self.journal.history,
-            &self.config,
+            &self.config.scoring,
+            &fingerprint,
             self.epoch.wall(now),
             &TimeZone::system(),
         );

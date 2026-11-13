@@ -1,36 +1,36 @@
 //! Drawing the statistics dashboard, in the style of lazygit: lists down
 //! the left, and the details of the selected row filling the right.
 //!
-//! Like everything else, it uses no colours: shading comes from the
-//! density of block characters, and emphasis from bold, dim and reverse.
+//! Everything shown comes ready-made from the [`Report`]; nothing here
+//! does any counting. Panes keep their shape from one selection to the
+//! next, so moving through a list changes the numbers and not the layout.
 
-use jiff::{ToSpan, Zoned, civil::Date};
+use jiff::{Timestamp, ToSpan, Zoned, civil::Date};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
-    style::{Style, Stylize},
+    layout::{Constraint, Layout, Margin, Rect},
+    style::Style,
     symbols::Marker,
     text::{Line, Span, Text},
     widgets::{
         Axis, Block, BorderType, Cell, Chart, Dataset, GraphType, LegendPosition, List, ListState,
-        Padding, Paragraph, Row, Sparkline, Table,
+        Padding, Paragraph, Row, Sparkline, Table, Wrap,
     },
 };
 
 use crate::{
-    app::{Dashboard, RECENT, Report, Side},
+    app::{Dashboard, Side},
     history::History,
-    problem::{Kind, Problem},
+    problem::Kind,
     stats::{
-        features::{Feature, canonical},
-        model::Skill,
-        report::{Cost, GRID, percentile_curve},
+        features::Feature,
+        report::{Cost, GRID, KindReport, Report, SessionReport, Speed, WeakSpot},
     },
     store::Attempt,
     theme::Theme,
 };
 
-/// Shades from least to most, for heatmaps.
+/// Shades from least to most, for the activity heatmap.
 const SHADES: [char; 5] = ['·', '░', '▒', '▓', '█'];
 
 /// Width of the column of lists.
@@ -57,57 +57,75 @@ pub fn render(dash: &Dashboard, history: &History, t: &Theme, frame: &mut Frame,
         Layout::horizontal([Constraint::Length(side_width), Constraint::Fill(1)]).areas(main);
     render_side(dash, t, frame, side);
     match dash.focus {
-        Side::Summary => overview(report, history, t, frame, details),
+        Side::Summary => overview(report, t, frame, details),
         Side::Kinds => match report.kinds.get(dash.selected(Side::Kinds)) {
-            Some(stats) => kind_details(report, history, stats.kind, t, frame, details),
-            None => empty(t, frame, details),
+            Some(kind) => kind_details(report, kind, t, frame, details),
+            None => empty(t, "", frame, details),
         },
         Side::Sessions => match report.sessions.get(dash.selected(Side::Sessions)) {
             Some(session) => session_details(dash, history, session, t, frame, details),
-            None => empty(t, frame, details),
+            None => empty(t, "", frame, details),
         },
-        Side::Weak => match report.hardest.get(dash.selected(Side::Weak)) {
-            Some(&(Feature::Item(problem), skill)) => {
-                item_details(dash, history, problem, skill, t, frame, details);
-            }
-            _ => empty(t, frame, details),
+        Side::Weak => match report.weak.get(dash.selected(Side::Weak)) {
+            Some(weak) => weak_details(dash, history, weak, t, frame, details),
+            None => empty(
+                t,
+                "Nothing stands out yet. A question shows up here once it has \
+                 been asked twice, and a skill once it has come up five times, \
+                 if it takes you more effort than your average.",
+                frame,
+                details,
+            ),
         },
     }
 }
 
 /// A rounded panel, bold when focused and dim otherwise.
-fn panel(t: &Theme, title: String, focused: bool) -> Block<'static> {
+fn panel(t: &Theme, title: &str, focused: bool) -> Block<'static> {
     let style = t.border(focused);
-    Block::bordered()
+    let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(style)
-        .title(Line::from(format!(" {title} ")).style(style))
+        .border_style(style);
+    if title.is_empty() {
+        block
+    } else {
+        block.title(Line::from(format!(" {title} ")).style(style))
+    }
 }
 
-fn empty(t: &Theme, frame: &mut Frame, area: Rect) {
-    frame.render_widget(panel(t, String::new(), false), area);
+/// The details panel, drawn, and the room inside it.
+fn details_panel(t: &Theme, title: &str, frame: &mut Frame, area: Rect) -> Rect {
+    let block = panel(t, title, false);
+    let inner = block.inner(area).inner(Margin::new(1, 0));
+    frame.render_widget(block, area);
+    inner
+}
+
+/// A details panel holding only a note.
+fn empty(t: &Theme, note: &str, frame: &mut Frame, area: Rect) {
+    let inner = details_panel(t, "", frame, area);
+    let note = Paragraph::new(note)
+        .style(t.muted())
+        .wrap(Wrap { trim: true });
+    frame.render_widget(note, inner);
 }
 
 fn secs(ms: f64) -> String {
     format!("{:.1}s", ms / 1000.0)
 }
 
-fn local(report: &Report, ts: jiff::Timestamp) -> Zoned {
+/// `1.4×`.
+fn times(factor: f64) -> String {
+    format!("{factor:.1}×")
+}
+
+fn local(report: &Report, ts: Timestamp) -> Zoned {
     ts.to_zoned(report.tz.clone())
 }
 
 /// The lists down the left.
 fn render_side(dash: &Dashboard, t: &Theme, frame: &mut Frame, area: Rect) {
     let report = &dash.report;
-    let kinds_height = report.kinds.len().min(10) as u16 + 2;
-    let [summary, kinds, sessions, weak] = Layout::vertical([
-        Constraint::Length(5),
-        Constraint::Length(kinds_height),
-        Constraint::Fill(1),
-        Constraint::Fill(1),
-    ])
-    .areas(area);
-
     let mut lines = vec![
         Line::from(format!("{} attempts", report.attempts)),
         Line::from(format!("{} sessions", report.sessions.len())),
@@ -118,29 +136,44 @@ fn render_side(dash: &Dashboard, t: &Theme, frame: &mut Frame, area: Rect) {
         )),
     ];
     if report.damaged > 0 {
-        lines
-            .push(Line::from(format!("{} damaged lines skipped", report.damaged)).style(t.muted()));
+        lines.push(Line::from(format!("{} damaged lines skipped", report.damaged)).style(t.warn()));
     }
+    // Every kind if there is room, but never so many that the lists
+    // below are squeezed to nothing: the list scrolls instead.
+    const BELOW: u16 = 2 * 5;
+    let summary_height = lines.len() as u16 + 2;
+    let kinds_height = (report.kinds.len() as u16 + 2)
+        .min(area.height.saturating_sub(summary_height + BELOW))
+        .max(3);
+    let [summary, kinds, sessions, weak] = Layout::vertical([
+        Constraint::Length(summary_height),
+        Constraint::Length(kinds_height),
+        Constraint::Fill(1),
+        Constraint::Fill(1),
+    ])
+    .areas(area);
+
     let focused = dash.focus == Side::Summary;
-    let block = numbered(t, Side::Summary, focused);
-    let summary_text = Paragraph::new(lines).block(block);
-    frame.render_widget(
-        if focused {
-            summary_text.style(t.heading())
-        } else {
-            summary_text
-        },
-        summary,
-    );
+    let mut summary_text = Paragraph::new(lines).block(numbered(t, Side::Summary, focused));
+    if focused {
+        summary_text = summary_text.style(t.heading());
+    }
+    frame.render_widget(summary_text, summary);
 
     let inner = usize::from(area.width.saturating_sub(4));
     let rows = report.kinds.iter().map(|k| {
-        let stats = format!("{:.0}% {:>5}", k.accuracy() * 100.0, secs(k.median_ms));
-        spread(k.kind.label(), &stats, inner)
+        let stats = &k.stats;
+        let numbers = format!(
+            "{:.0}% {:>5}",
+            stats.accuracy() * 100.0,
+            secs(stats.median_ms)
+        );
+        spread(stats.kind.label(), &numbers, inner)
     });
     list(dash, Side::Kinds, rows.collect(), t, frame, kinds);
 
     let rows = report.sessions.iter().map(|s| {
+        let s = &s.record;
         let when = local(report, s.start).strftime("%m-%d %H:%M").to_string();
         let score = if s.completed {
             s.score.to_string()
@@ -151,23 +184,16 @@ fn render_side(dash: &Dashboard, t: &Theme, frame: &mut Frame, area: Rect) {
     });
     list(dash, Side::Sessions, rows.collect(), t, frame, sessions);
 
-    let rows = report.hardest.iter().map(|(feature, skill)| {
-        let question = match feature {
-            Feature::Item(p) => p.to_string(),
-            other => other.to_string(),
-        };
-        spread(&question, &format!("{:.1}×", skill.score.exp()), inner)
+    let rows = report.weak.iter().map(|weak| {
+        let effort = times(weak.skill.factor(report.overall));
+        spread(&weak.feature.to_string(), &effort, inner)
     });
     list(dash, Side::Weak, rows.collect(), t, frame, weak);
 }
 
 fn numbered(t: &Theme, side: Side, focused: bool) -> Block<'static> {
-    panel(
-        t,
-        format!("[{}] {}", side.index() + 1, side.title()),
-        focused,
-    )
-    .padding(Padding::horizontal(1))
+    let title = format!("[{}] {}", side.index() + 1, side.title());
+    panel(t, &title, focused).padding(Padding::horizontal(1))
 }
 
 /// `left` and `right` at either end of `width` cells, `left` cut short if
@@ -179,6 +205,15 @@ fn spread(left: &str, right: &str, width: usize) -> String {
     format!("{left}{}{right}", " ".repeat(pad))
 }
 
+/// Where a list of `len` rows showing `visible` of them starts, to keep
+/// row `selected` near the middle: rows above and below it stay in view
+/// until the list runs out.
+fn window(selected: usize, len: usize, visible: usize) -> usize {
+    selected
+        .saturating_sub(visible / 2)
+        .min(len.saturating_sub(visible))
+}
+
 /// A list down the side, scrolled to keep its selection in view.
 fn list(dash: &Dashboard, side: Side, rows: Vec<String>, t: &Theme, frame: &mut Frame, area: Rect) {
     let focused = dash.focus == side;
@@ -187,19 +222,24 @@ fn list(dash: &Dashboard, side: Side, rows: Vec<String>, t: &Theme, frame: &mut 
     } else {
         Style::new().bold()
     };
+    let selected = dash.selected(side);
+    let offset = window(
+        selected,
+        rows.len(),
+        usize::from(area.height.saturating_sub(2)),
+    );
     let list = List::new(rows)
         .block(numbered(t, side, focused))
         .highlight_style(highlight);
-    let mut state = ListState::default().with_selected(Some(dash.selected(side)));
+    let mut state = ListState::default()
+        .with_offset(offset)
+        .with_selected(Some(selected));
     frame.render_stateful_widget(list, area, &mut state);
 }
 
 /// Everything at a glance: the score trend, practice per day, and speed.
-fn overview(report: &Report, history: &History, t: &Theme, frame: &mut Frame, area: Rect) {
-    let block = panel(t, "Overview".into(), false);
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    let inner = inner.inner(ratatui::layout::Margin::new(1, 0));
+fn overview(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
+    let inner = details_panel(t, "Overview", frame, area);
     let [trend, _, activity_area, _, speed_area] = Layout::vertical([
         Constraint::Length(6),
         Constraint::Length(1),
@@ -210,10 +250,7 @@ fn overview(report: &Report, history: &History, t: &Theme, frame: &mut Frame, ar
     .areas(inner);
     render_trend(report, t, frame, trend);
     activity(report, t, frame, activity_area);
-    let all = percentile_curve(&history.attempts);
-    let since = report.now - RECENT;
-    let recent = percentile_curve(history.attempts.iter().filter(|a| a.ts >= since));
-    speed_chart(&all, &recent, t, frame, speed_area);
+    speed_chart(&report.speed, true, t, frame, speed_area);
 }
 
 fn render_trend(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
@@ -227,47 +264,55 @@ fn render_trend(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
         Line::from("Score with the current settings").style(t.heading()),
         title,
     );
-    let note_text = match report.trend.as_slice() {
-        [] => "No finished sessions with these settings yet.".to_owned(),
-        scores => {
-            let best = scores.iter().max().copied().unwrap_or(0);
-            let last = scores.last().copied().unwrap_or(0);
+    let scores = &report.trend;
+    let (lowest, best) = (
+        scores.iter().min().copied().unwrap_or(0),
+        scores.iter().max().copied().unwrap_or(0),
+    );
+    let note_text = match scores.last() {
+        None => "No finished sessions with these settings yet.".to_owned(),
+        Some(last) => {
             let mean = scores.iter().sum::<u32>() as f64 / scores.len() as f64;
             format!(
-                "{} sessions · last {last} · best {best} · mean {mean:.1}",
+                "{} sessions · last {last} · best {best} · mean {mean:.0}",
                 scores.len()
             )
         }
     };
+    // Bars rise from a little under the lowest score rather than from
+    // zero, so that the differences between sessions are what shows.
+    let floor = lowest.saturating_sub(((best - lowest) / 4).max(1));
     // The newest sessions that fit, one column each.
-    let shown: Vec<u64> = report
-        .trend
+    let shown: Vec<u64> = scores
         .iter()
         .rev()
         .take(usize::from(spark.width))
         .rev()
-        .map(|&s| u64::from(s))
+        .map(|&s| u64::from(s - floor))
         .collect();
     frame.render_widget(Sparkline::default().data(&shown).style(t.info()), spark);
     frame.render_widget(Line::from(note_text).style(t.muted()), note);
 }
 
-/// Response time against percentile, recent over all time.
-fn speed_chart(
-    all: &[(f64, f64)],
-    recent: &[(f64, f64)],
-    t: &Theme,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    if all.is_empty() || area.height < 6 {
+/// The y-axis label for `secs`, the same width whatever the number, so
+/// that the plot does not move sideways between one chart and the next.
+fn axis_label(secs: f64) -> String {
+    format!("{secs:>5.1}")
+}
+
+/// Response time against percentile, recent over all time. `numbers`
+/// puts the median and 90th percentile in the title, for where nothing
+/// else on screen says them.
+fn speed_chart(speed: &Speed, numbers: bool, t: &Theme, frame: &mut Frame, area: Rect) {
+    if speed.all.is_empty() || area.height < 6 {
         return;
     }
     // Cap the y axis at the 95th percentile so the slow tail does not
     // flatten everything else.
-    let top = all
+    let top = speed
+        .all
         .iter()
-        .chain(recent)
+        .chain(&speed.recent)
         .filter(|(p, _)| *p <= 95.0)
         .map(|(_, s)| *s)
         .fold(1.0, f64::max)
@@ -275,42 +320,46 @@ fn speed_chart(
     let clip = |curve: &[(f64, f64)]| -> Vec<(f64, f64)> {
         curve.iter().map(|&(p, s)| (p, s.min(top))).collect()
     };
-    let (all_clipped, recent_clipped) = (clip(all), clip(recent));
+    let (all, recent) = (clip(&speed.all), clip(&speed.recent));
     let mut datasets = vec![
         Dataset::default()
             .name("all time")
             .marker(Marker::Braille)
             .graph_type(GraphType::Line)
             .style(t.muted())
-            .data(&all_clipped),
+            .data(&all),
     ];
-    if !recent_clipped.is_empty() {
+    if !recent.is_empty() {
         datasets.push(
             Dataset::default()
                 .name("last 7 days")
                 .marker(Marker::Braille)
                 .graph_type(GraphType::Line)
                 .style(t.heading())
-                .data(&recent_clipped),
+                .data(&recent),
         );
     }
-    let at = |p: usize| all.get(p).map_or(0.0, |&(_, s)| s);
-    let title = format!(
-        "Seconds per correct answer, by percentile · median {:.1}s · p90 {:.1}s",
-        at(50),
-        at(90)
-    );
+    let mut title = "Seconds per correct answer, by percentile".to_owned();
+    if numbers {
+        let numbers = format!("median {:.1}s · p90 {:.1}s", speed.at(50), speed.at(90));
+        title = format!("{title} · {numbers}");
+        if title.chars().count() > usize::from(area.width) {
+            title = format!("Seconds by percentile · {numbers}");
+        }
+    }
     let chart = Chart::new(datasets)
         .x_axis(
             Axis::default()
+                .style(t.muted())
                 .bounds([0.0, 100.0])
                 .labels(["0", "25", "50", "75", "100"]),
         )
-        .y_axis(Axis::default().bounds([0.0, top]).labels([
-            "0".to_owned(),
-            format!("{:.0}", top / 2.0),
-            format!("{top:.0}"),
-        ]))
+        .y_axis(
+            Axis::default()
+                .style(t.muted())
+                .bounds([0.0, top])
+                .labels([0.0, top / 2.0, top].map(axis_label)),
+        )
         .legend_position(Some(LegendPosition::TopLeft));
     let [title_area, chart_area] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
@@ -375,147 +424,176 @@ fn month(m: i8) -> &'static str {
     NAMES[usize::try_from(m - 1).unwrap_or(0)]
 }
 
-/// One kind: its numbers and speed, with the facts behind it where there
-/// are any, and its hardest questions.
-fn kind_details(
-    report: &Report,
-    history: &History,
-    kind: Kind,
-    t: &Theme,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    let block = panel(t, kind.label().into(), false);
-    let inner = block.inner(area).inner(ratatui::layout::Margin::new(1, 0));
-    frame.render_widget(block, area);
+/// Rows of the band under a kind's speed chart: a title, ten rows and a
+/// note, or the times-table grid.
+const BAND: u16 = 12;
 
-    let attempts: Vec<&Attempt> = history
-        .attempts
-        .iter()
-        .filter(|a| a.problem.kind() == kind)
-        .collect();
-    let stats = report.kinds.iter().find(|k| k.kind == kind);
-    let summary = stats.map_or_else(String::new, |k| {
-        format!(
-            "{} seen · {:.0}% right · median {} · p90 {}",
-            k.attempts,
-            k.accuracy() * 100.0,
-            secs(k.median_ms),
-            secs(k.p90_ms)
-        )
-    });
-    let hardest: Vec<_> = report
-        .hardest
-        .iter()
-        .filter(|(f, _)| matches!(f, Feature::Item(p) if p.kind() == kind))
-        .take(8)
-        .collect();
-    let [summary_area, _, middle, hard_area] = Layout::vertical([
+/// The fewest rows worth giving the speed chart.
+const MIN_CHART: u16 = 8;
+
+/// Width of the times-table grid.
+const GRID_WIDTH: u16 = 28;
+
+/// One kind: its numbers, its speed, and beneath them what its skills
+/// cost, its hardest questions and, where there are any, the facts
+/// behind it. Every kind is laid out alike, so the chart stays where it
+/// is from one kind to the next.
+fn kind_details(report: &Report, kind: &KindReport, t: &Theme, frame: &mut Frame, area: Rect) {
+    let stats = &kind.stats;
+    let inner = details_panel(t, stats.kind.label(), frame, area);
+    let mut summary = format!(
+        "{} seen · {:.0}% right · median {} · p90 {}",
+        stats.attempts,
+        stats.accuracy() * 100.0,
+        secs(stats.median_ms),
+        secs(stats.p90_ms)
+    );
+    if let Some(recent) = stats.recent_median_ms {
+        summary.push_str(&format!(" · last 7 days {}", secs(recent)));
+    }
+    let band_height = if inner.height >= 2 + MIN_CHART + 1 + BAND {
+        BAND
+    } else {
+        0
+    };
+    let [summary_area, _, chart_area, _, band] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Fill(1),
-        Constraint::Length(if hardest.is_empty() {
-            0
-        } else {
-            hardest.len() as u16 + 2
-        }),
+        Constraint::Length(u16::from(band_height > 0)),
+        Constraint::Length(band_height),
     ])
     .areas(inner);
     frame.render_widget(Line::from(summary), summary_area);
+    speed_chart(&kind.speed, false, t, frame, chart_area);
+    if band_height == 0 {
+        return;
+    }
 
-    let side_lines = match kind {
-        Kind::Mul | Kind::Div | Kind::LongMul => Some(fact_grid(t, report)),
-        Kind::Add => Some(costs(t, "Carries", &report.carries, "carries")),
-        Kind::Sub => Some(costs(t, "Borrows", &report.borrows, "borrows")),
-        _ => None,
-    };
-    let chart_area = match side_lines {
-        Some(lines) if middle.width >= 70 => {
-            let [chart, _, side] = Layout::horizontal([
-                Constraint::Fill(1),
-                Constraint::Length(2),
-                Constraint::Length(30),
-            ])
-            .areas(middle);
-            frame.render_widget(Text::from(lines), side);
-            chart
-        }
-        _ => middle,
-    };
-    let since = report.now - RECENT;
-    let all = percentile_curve(attempts.iter().copied());
-    let recent = percentile_curve(attempts.iter().copied().filter(|a| a.ts >= since));
-    speed_chart(&all, &recent, t, frame, chart_area);
-
-    if !hardest.is_empty() {
-        let mut lines = vec![Line::default(), Line::from("Hardest").style(t.heading())];
-        for (feature, skill) in hardest {
-            lines.push(Line::from(spread(
-                &feature.to_string(),
-                &format!("{:.1}× · seen {}", skill.score.exp(), skill.count),
-                usize::from(hard_area.width.min(50)),
-            )));
-        }
-        frame.render_widget(Text::from(lines), hard_area);
+    let has_grid = matches!(stats.kind, Kind::Mul | Kind::Div | Kind::LongMul);
+    // The grid takes the place of the hardest questions unless there is
+    // room for all three.
+    let wide = band.width >= 2 * 32 + GRID_WIDTH + 4;
+    let [costs_area, hardest_area, grid_area] = Layout::horizontal([
+        Constraint::Fill(1),
+        Constraint::Fill(u16::from(!has_grid || wide)),
+        Constraint::Length(if has_grid { GRID_WIDTH } else { 0 }),
+    ])
+    .spacing(2)
+    .areas(band);
+    frame.render_widget(
+        Text::from(costs(t, &kind.costs, costs_area.width)),
+        costs_area,
+    );
+    if hardest_area.width > 0 {
+        let lines = hardest(t, kind, report.overall, hardest_area.width);
+        frame.render_widget(Text::from(lines), hardest_area);
+    }
+    if has_grid {
+        frame.render_widget(Text::from(fact_grid(t, report)), grid_area);
     }
 }
 
-/// The heat level, 0 to 4, for a struggle score `d` above (or below) the
-/// average.
+/// A titled list of `rows`, as (name, numbers), under column headings
+/// and over a note saying what the numbers are. Fits the band.
+fn ranking(
+    t: &Theme,
+    title: &str,
+    rows: Vec<(String, String)>,
+    note: &str,
+    width: u16,
+) -> Vec<Line<'static>> {
+    let width = usize::from(width.min(44));
+    let mut lines = vec![Line::from(title.to_owned()).style(t.heading())];
+    if rows.is_empty() {
+        lines.push(Line::from("not enough answers yet").style(t.muted()));
+        return lines;
+    }
+    lines.extend(
+        rows.into_iter()
+            .take(usize::from(BAND) - 2)
+            .map(|(name, numbers)| Line::from(spread(&name, &numbers, width))),
+    );
+    lines.push(Line::from(note.to_owned()).style(t.muted()));
+    lines
+}
+
+/// What each skill in a kind costs in time.
+fn costs(t: &Theme, costs: &[Cost], width: u16) -> Vec<Line<'static>> {
+    let rows = costs
+        .iter()
+        .map(|c| {
+            (
+                c.feature.to_string(),
+                format!("{:.2}× {:>4}", c.factor, c.count),
+            )
+        })
+        .collect();
+    ranking(
+        t,
+        "What takes time",
+        rows,
+        "× the usual time · times right",
+        width,
+    )
+}
+
+/// A kind's hardest questions.
+fn hardest(t: &Theme, kind: &KindReport, overall: f64, width: u16) -> Vec<Line<'static>> {
+    let rows = kind
+        .hardest
+        .iter()
+        .map(|(problem, skill)| {
+            let numbers = format!("{} {:>4}", times(skill.factor(overall)), skill.count);
+            (problem.to_string(), numbers)
+        })
+        .collect();
+    ranking(
+        t,
+        "Hardest questions",
+        rows,
+        "× your average · times seen",
+        width,
+    )
+}
+
+/// The heat level, 0 to 4, of a skill `d` above (or below) the average
+/// struggle: 2 is about average, and each step either way is a third or
+/// so more or less effort.
 fn level(d: f64) -> usize {
     match d {
-        d if d < -0.2 => 0,
-        d if d < 0.0 => 1,
-        d if d < 0.2 => 2,
-        d if d < 0.5 => 3,
+        d if d < -0.3 => 0,
+        d if d < -0.1 => 1,
+        d if d < 0.1 => 2,
+        d if d < 0.3 => 3,
         _ => 4,
     }
 }
 
-/// The times-table heatmap.
+/// The times-table heatmap: a solid cell for each fact seen, coloured
+/// from easier than average to harder.
 fn fact_grid(t: &Theme, report: &Report) -> Vec<Line<'static>> {
+    const CELL: &str = "██";
     let mut lines = vec![Line::from("Times tables").style(t.heading())];
     let header: String = GRID.map(|b| format!("{b:>3}")).collect();
     lines.push(Line::from(format!("  ×{header}")).style(t.muted()));
-    for (i, a) in GRID.enumerate() {
+    for (a, row) in GRID.zip(&report.grid) {
         let mut spans = vec![Span::from(format!("{a:>3} ")).style(t.muted())];
-        for cell in &report.grid[i] {
-            let text = match cell {
-                Some(skill) => {
-                    let level = level(skill.score - report.overall);
-                    spans
-                        .push(Span::from(SHADES[level].to_string().repeat(2)).style(t.heat(level)));
-                    spans.push(Span::from(" "));
-                    continue;
-                }
-                None => "  ".to_owned(),
-            };
-            spans.push(Span::from(format!("{text} ")));
+        for cell in row {
+            spans.push(match cell {
+                Some(skill) => Span::from(CELL).style(t.heat(level(skill.score - report.overall))),
+                None => Span::from("  "),
+            });
+            spans.push(Span::from(" "));
         }
         lines.push(Line::from(spans));
     }
-    let mut legend = vec![Span::from("easy ").style(t.muted())];
-    legend.extend((0..SHADES.len()).map(|i| Span::from(SHADES[i].to_string()).style(t.heat(i))));
-    legend.push(Span::from(" hard").style(t.muted()));
+    // A row apart, or the legend reads as one more row of the grid.
+    lines.push(Line::default());
+    let mut legend = vec![Span::from("  easier ").style(t.muted())];
+    legend.extend((0..5).map(|level| Span::from(CELL).style(t.heat(level))));
+    legend.push(Span::from(" harder").style(t.muted()));
     lines.push(Line::from(legend));
-    lines
-}
-
-/// How much carries or borrows slow things down.
-fn costs(t: &Theme, title: &str, costs: &[Cost], what: &str) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from(title.to_owned()).style(t.heading())];
-    if costs.is_empty() {
-        lines.push(Line::from("not enough answers yet").style(t.muted()));
-    }
-    for c in costs {
-        // Eight cells is the usual time; each cell either side is 1/16.
-        let cells = ((c.factor - 0.5) * 16.0).round().clamp(0.0, 16.0) as usize;
-        lines.push(Line::from(vec![
-            Span::from(format!("{} {what:<8}{:>5.2}× ", c.steps, c.factor)),
-            Span::from("█".repeat(cells)).style(t.muted()),
-        ]));
-    }
-    lines.push(Line::from("× the usual time").style(t.muted()));
     lines
 }
 
@@ -523,35 +601,29 @@ fn costs(t: &Theme, title: &str, costs: &[Cost], what: &str) -> Vec<Line<'static
 fn session_details(
     dash: &Dashboard,
     history: &History,
-    session: &crate::store::SessionRecord,
+    session: &SessionReport,
     t: &Theme,
     frame: &mut Frame,
     area: Rect,
 ) {
     let report = &dash.report;
-    let when = local(report, session.start)
+    let record = &session.record;
+    let when = local(report, record.start)
         .strftime("%a %-d %b %Y, %H:%M")
         .to_string();
-    let block = panel(t, format!("Session · {when}"), false);
-    let inner = block.inner(area).inner(ratatui::layout::Margin::new(1, 0));
-    frame.render_widget(block, area);
-    let status = if session.completed {
+    let inner = details_panel(t, &format!("Session · {when}"), frame, area);
+    let status = if record.completed {
         "finished"
     } else {
         "abandoned"
     };
     let header = format!(
         "{} · {} s · {} submit · score {} · {status}",
-        session.mode.label(),
-        session.duration,
-        session.submit.name(),
-        session.score,
+        record.mode.label(),
+        record.duration,
+        record.submit.name(),
+        record.score,
     );
-    let attempts: Vec<&Attempt> = history
-        .attempts
-        .iter()
-        .filter(|a| a.session == session.id)
-        .collect();
     let [header_area, _, table_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
@@ -559,112 +631,131 @@ fn session_details(
     ])
     .areas(inner);
     frame.render_widget(Line::from(header), header_area);
-    attempt_table(
-        attempts.into_iter(),
-        dash.scroll,
-        false,
-        report,
-        t,
-        frame,
-        table_area,
-    );
+    let attempts = attempts(history, &session.attempts);
+    attempt_table(&attempts, dash.scroll, false, report, t, frame, table_area);
 }
 
-/// One question: how every attempt at it went.
-fn item_details(
+/// One weak spot: what it is, how it has gone, and every attempt at it.
+fn weak_details(
     dash: &Dashboard,
     history: &History,
-    item: Problem,
-    skill: Skill,
+    weak: &WeakSpot,
     t: &Theme,
     frame: &mut Frame,
     area: Rect,
 ) {
-    let block = panel(t, item.to_string(), false);
-    let inner = block.inner(area).inner(ratatui::layout::Margin::new(1, 0));
-    frame.render_widget(block, area);
+    let report = &dash.report;
+    let inner = details_panel(t, &weak.feature.to_string(), frame, area);
     let header = format!(
-        "{} = {} · seen {} · {:.1}× the usual effort",
-        item,
-        item.answer(),
-        skill.count,
-        skill.score.exp()
+        "seen {} · {:.0}% right · median {} · {} your average effort",
+        weak.attempts.len(),
+        weak.accuracy() * 100.0,
+        secs(weak.median_ms),
+        times(weak.skill.factor(report.overall)),
     );
-    let [header_area, _, table_area] = Layout::vertical([
+    let about = match weak.feature {
+        Feature::Item(problem) => {
+            let answer = problem.answer().to_string();
+            // Approximate answers carry their own `≈`.
+            let equals = if answer.starts_with('≈') { "" } else { "= " };
+            format!("{problem} {equals}{answer}")
+        }
+        feature => feature.about().unwrap_or_default().to_owned(),
+    };
+    // The note has its two rows whether or not it fills them, so the
+    // table starts on the same row for every weak spot.
+    let [header_area, about_area, _, table_area] = Layout::vertical([
         Constraint::Length(1),
+        Constraint::Length(2),
         Constraint::Length(1),
         Constraint::Fill(1),
     ])
     .areas(inner);
     frame.render_widget(Line::from(header), header_area);
-    let attempts = history
-        .attempts
-        .iter()
-        .rev()
-        .filter(|a| canonical(&a.problem) == item);
-    attempt_table(
-        attempts,
-        dash.scroll,
-        true,
-        &dash.report,
-        t,
-        frame,
-        table_area,
-    );
+    let about = Paragraph::new(about)
+        .style(t.muted())
+        .wrap(Wrap { trim: true });
+    frame.render_widget(about, about_area);
+    let attempts = attempts(history, &weak.attempts);
+    attempt_table(&attempts, dash.scroll, true, report, t, frame, table_area);
 }
 
-/// Attempts as a table, scrolled down by `scroll` rows. `dated` shows the
-/// date rather than the question.
-fn attempt_table<'a>(
-    attempts: impl Iterator<Item = &'a Attempt>,
-    scroll: u16,
+/// The attempts at `indices` in the history. An index past the end, which
+/// a report older than the history could hold, is left out.
+fn attempts<'a>(history: &'a History, indices: &[usize]) -> Vec<&'a Attempt> {
+    indices
+        .iter()
+        .filter_map(|&i| history.attempts.get(i))
+        .collect()
+}
+
+/// Attempts as a table, scrolled down by `scroll` rows, with where that
+/// leaves it in the bottom corner when there is more than fits. `dated`
+/// adds when each was made.
+fn attempt_table(
+    attempts: &[&Attempt],
+    scroll: usize,
     dated: bool,
     report: &Report,
     t: &Theme,
     frame: &mut Frame,
     area: Rect,
 ) {
-    let attempts: Vec<&Attempt> = attempts.collect();
-    // Never scroll past the last row.
-    let skip = usize::from(scroll).min(attempts.len().saturating_sub(1));
-    let rows: Vec<Row> = attempts[skip..]
-        .iter()
-        .map(|a| {
-            let first = if dated {
-                local(report, a.ts).strftime("%Y-%m-%d %H:%M").to_string()
-            } else {
-                a.question.clone()
-            };
-            let mark = match (a.correct, a.skipped) {
-                (true, _) => Cell::from("✓").style(t.good()),
-                (false, true) => Cell::from("skip").style(t.warn()),
-                (false, false) => Cell::from("✗").style(t.bad()),
-            };
-            Row::new([
-                Cell::from(first),
-                Cell::from(a.answer.clone()).style(t.muted()),
-                Cell::from(a.given.clone()),
-                mark,
-                Cell::from(secs(a.ms as f64)),
-            ])
-        })
-        .collect();
-    let header = Row::new([
-        if dated { "When" } else { "Question" },
-        "Answer",
-        "Given",
-        "",
-        "Time",
-    ])
-    .bold();
+    // In a narrow pane the day is enough, and the question needs the room.
+    let (when_format, when_width) = if area.width >= 64 {
+        ("%Y-%m-%d %H:%M", 16)
+    } else {
+        ("%m-%d", 5)
+    };
+    let skip = scroll.min(attempts.len().saturating_sub(1));
+    let rows = attempts[skip..].iter().map(|a| {
+        let mark = match (a.correct, a.skipped) {
+            (true, _) => Cell::from("✓").style(t.good()),
+            (false, true) => Cell::from("skip").style(t.warn()),
+            (false, false) => Cell::from("✗").style(t.bad()),
+        };
+        let when = local(report, a.ts).strftime(when_format).to_string();
+        let cells = [
+            Cell::from(when).style(t.muted()),
+            Cell::from(a.question.clone()),
+            Cell::from(a.answer.clone()).style(t.muted()),
+            Cell::from(a.given.clone()),
+            mark,
+            Cell::from(Line::from(secs(a.ms as f64)).right_aligned()),
+        ];
+        Row::new(cells.into_iter().skip(usize::from(!dated)))
+    });
+    let titles = [
+        Cell::from("When"),
+        Cell::from("Question"),
+        Cell::from("Answer"),
+        Cell::from("Given"),
+        Cell::from(""),
+        Cell::from(Line::from("Time").right_aligned()),
+    ];
     let widths = [
+        Constraint::Length(when_width),
         Constraint::Fill(2),
         Constraint::Fill(1),
         Constraint::Fill(1),
         Constraint::Length(4),
         Constraint::Length(7),
     ];
-    frame.render_widget(Table::new(rows, widths).header(header), area);
+    let first = usize::from(!dated);
+    let header = Row::new(titles.into_iter().skip(first)).style(t.heading());
+    frame.render_widget(Table::new(rows, &widths[first..]).header(header), area);
+
+    // Where the table has got to, on the panel's bottom border.
+    let visible = usize::from(area.height.saturating_sub(1));
+    if attempts.len() > visible && area.height > 0 {
+        let last = (skip + visible).min(attempts.len());
+        let position = format!(" {}–{last} of {} ", skip + 1, attempts.len());
+        let border = Rect::new(area.x, area.bottom(), area.width, 1).intersection(frame.area());
+        frame.render_widget(
+            Line::from(position).style(t.muted()).right_aligned(),
+            border,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -672,13 +763,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shades_rise_with_struggle() {
-        assert_eq!([-1.0, -0.1, 0.1, 0.3, 2.0].map(level), [0, 1, 2, 3, 4]);
+    fn heat_levels_are_symmetric_about_the_average() {
+        assert_eq!([-1.0, -0.2, 0.0, 0.2, 2.0].map(level), [0, 1, 2, 3, 4]);
     }
 
     #[test]
     fn spread_fills_and_truncates() {
         assert_eq!(spread("ab", "9", 6), "ab   9");
         assert_eq!(spread("abcdef", "9", 4), "ab 9");
+    }
+
+    #[test]
+    fn axis_labels_are_all_one_width() {
+        assert_eq!(
+            [0.0, 2.5, 11.0, 5.5].map(axis_label),
+            ["  0.0", "  2.5", " 11.0", "  5.5"]
+        );
+    }
+
+    #[test]
+    fn window_keeps_the_selection_mid_list() {
+        // Everything fits: no scrolling.
+        assert_eq!(window(3, 5, 10), 0);
+        // Near the top, in the middle, and at the end of 100 rows.
+        assert_eq!(window(2, 100, 10), 0);
+        assert_eq!(window(50, 100, 10), 45);
+        assert_eq!(window(99, 100, 10), 90);
+        assert_eq!(window(0, 0, 0), 0);
     }
 }

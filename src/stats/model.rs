@@ -169,6 +169,14 @@ pub struct Skill {
     pub count: u32,
 }
 
+impl Skill {
+    /// How much more effort it takes than the `overall` average: 1.5 is
+    /// half as much again, and below 1 is a strength.
+    pub fn factor(&self, overall: f64) -> f64 {
+        (self.score - overall).exp()
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct SkillModel {
     scoring: Scoring,

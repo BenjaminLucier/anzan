@@ -137,16 +137,21 @@ right shows the details of whatever is selected:
   then), practice per day over the past year, and response time by
   percentile, over all time and the last week.
 - **Kinds**: accuracy and median time for each kind practised. Select one
-  for its speed curve and hardest questions, with a times-table heatmap
-  for multiplication and division, or what carrying and borrowing cost in
-  addition and subtraction.
+  for its speed curve, and beneath it what each of its skills costs you in
+  time (carrying twice, multiplying by 7, numbers ending in 8 or 9), its
+  hardest questions, and for multiplication and division a times-table
+  heatmap running from easier than your average to harder.
 - **Sessions**: every session, newest first. Select one to see each
   question asked, the answer, what you gave and how long it took.
-- **Weak spots**: the questions that have cost you the most. Select one to
-  see every attempt at it.
+- **Weak spots**: the questions and the skills that take you more effort
+  than your average, worst first. A question is listed once it has been
+  asked twice, and a skill once it has come up five times. Select one to
+  see every attempt behind it and, for a question with a shortcut, what
+  the shortcut is.
 
-Times are compared only within the same submit mode by default, since
-pressing Enter takes time of its own.
+Times are compared only between problems of the same kind and size, and
+by default only within the same submit mode, since pressing Enter takes
+time of its own.
 
 ## Configuration
 

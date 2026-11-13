@@ -284,8 +284,184 @@ mod tests {
     use rand::{SeedableRng, rngs::StdRng};
     use ratatui::{Terminal, backend::TestBackend};
 
+    use jiff::{SignedDuration, Timestamp};
+    use rand::RngExt;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent};
+
     use super::*;
-    use crate::{config::Config, problem::Kind};
+    use crate::{
+        config::Config,
+        history::History,
+        problem::Kind,
+        store::{Attempt, SessionRecord},
+    };
+
+    fn wall() -> Timestamp {
+        "2026-11-13T10:00:00Z".parse().unwrap()
+    }
+
+    /// Twenty sessions over as many days, in kinds whose details differ:
+    /// some have a times-table grid, some skills, some neither. Kinds
+    /// take very different times, so their charts have different scales.
+    fn history() -> History {
+        let mut config = Config::default();
+        config.problems.kinds = vec![
+            Kind::Add,
+            Kind::Mul,
+            Kind::LongMul,
+            Kind::Convert,
+            Kind::Dice,
+        ];
+        let mut rng = StdRng::seed_from_u64(1);
+        let mut history = History {
+            damaged: 2,
+            ..History::default()
+        };
+        for day in (0..20).rev() {
+            let start = wall() - SignedDuration::from_hours(24 * day + 1);
+            let id = format!("session-{day}");
+            for i in 0..30 {
+                let problem = config.problems.generate(&mut rng);
+                let slow = if problem.kind() == Kind::LongMul {
+                    40
+                } else {
+                    1
+                };
+                history.attempts.push(Attempt {
+                    ts: start + SignedDuration::from_secs(4 * i),
+                    session: id.clone(),
+                    problem,
+                    question: problem.to_string(),
+                    answer: problem.answer().to_string(),
+                    given: problem.answer().to_string(),
+                    correct: i % 9 != 0,
+                    skipped: false,
+                    submit: Submit::Auto,
+                    ms: rng.random_range(700..4000) * slow,
+                    edits: 0,
+                });
+            }
+            history.sessions.push(SessionRecord {
+                id,
+                start,
+                end: start + SignedDuration::from_secs(120),
+                duration: 120,
+                score: 20 + (day % 7) as u32,
+                completed: day % 5 != 0,
+                submit: Submit::Auto,
+                mode: Default::default(),
+                problems: serde_json::to_value(&Config::default().problems).unwrap(),
+            });
+        }
+        history
+    }
+
+    /// An app on the menu, with history behind it.
+    fn app() -> App {
+        App::new(
+            Config::default(),
+            StdRng::seed_from_u64(0),
+            Instant::now(),
+            wall(),
+        )
+        .with_history(history())
+    }
+
+    fn press(app: &mut App, keys: &[KeyCode]) {
+        for &key in keys {
+            app.handle_key(KeyEvent::from(key), Instant::now());
+        }
+    }
+
+    /// Opens the dashboard on the list numbered `list`, `row` rows down.
+    fn dashboard(list: char, row: usize) -> App {
+        let mut app = app();
+        press(&mut app, &[KeyCode::Char('d'), KeyCode::Char(list)]);
+        press(&mut app, &vec![KeyCode::Down; row]);
+        app
+    }
+
+    /// Every screen, at sizes from nothing up, draws without panicking:
+    /// a terminal can be resized to anything at any moment.
+    #[test]
+    fn every_screen_draws_at_any_size() {
+        let mut help = app();
+        press(&mut help, &[KeyCode::Char('?')]);
+        let mut summary = practising(Kind::Add);
+        summary.tick(Instant::now() + Duration::from_secs(600));
+        let mut scrolled = dashboard('3', 2);
+        press(&mut scrolled, &[KeyCode::PageDown; 5]);
+        let mut screens = vec![
+            app(),
+            help,
+            summary,
+            scrolled,
+            practising(Kind::ExpectedValue),
+        ];
+        screens.extend(['1', '2', '3', '4'].map(|list| dashboard(list, 1)));
+        // A dashboard with nothing in it.
+        let mut empty = App::new(
+            Config::default(),
+            StdRng::seed_from_u64(0),
+            Instant::now(),
+            wall(),
+        );
+        press(&mut empty, &[KeyCode::Char('d')]);
+        screens.push(empty);
+        for screen in &screens {
+            for width in [1, 2, 9, 20, 37, 50, 80, 120, 250] {
+                for height in [1, 2, 5, 9, 16, 24, 50, 90] {
+                    draw(screen, width, height);
+                }
+            }
+        }
+    }
+
+    /// The speed chart sits in the same place whichever kind is selected,
+    /// though their times, skills and grids all differ.
+    #[test]
+    fn chart_stays_put_between_kinds() {
+        // The corner of the axes: the last `└` on screen that starts a line.
+        let corner = |screen: &[String]| -> (usize, usize) {
+            let row = screen
+                .iter()
+                .rposition(|row| row.contains("└──"))
+                .expect("a chart");
+            let col = screen[row].chars().position(|c| c == '└').unwrap();
+            (row, col)
+        };
+        for (width, height) in [(110, 42), (160, 50), (80, 24)] {
+            let corners: Vec<_> = (0..5)
+                .map(|row| corner(&draw(&dashboard('2', row), width, height)))
+                .collect();
+            assert!(
+                corners.iter().all(|&c| c == corners[0]),
+                "{width}×{height}: {corners:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dashboard_says_when_history_is_damaged() {
+        let screen = draw(&dashboard('1', 0), 100, 30);
+        row_of(&screen, "2 damaged lines skipped");
+    }
+
+    /// The weak spots list names skills as well as single questions, and
+    /// its details start their table on the same row for either.
+    #[test]
+    fn weak_spot_details_keep_their_shape() {
+        let app = dashboard('4', 0);
+        let Screen::Dashboard(dash) = &app.screen else {
+            panic!("not on the dashboard");
+        };
+        let weak = dash.report.weak.len();
+        assert!(weak > 1, "the fixture should have weak spots");
+        let rows: Vec<usize> = (0..weak)
+            .map(|row| row_of(&draw(&dashboard('4', row), 110, 40), "When "))
+            .collect();
+        assert!(rows.iter().all(|&row| row == rows[0]), "{rows:?}");
+    }
 
     /// The screen as rows of text.
     fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
@@ -301,8 +477,7 @@ mod tests {
         let mut config = Config::default();
         config.problems.kinds = vec![kind];
         let now = Instant::now();
-        let wall = "2026-11-13T10:00:00Z".parse().unwrap();
-        App::new(config, StdRng::seed_from_u64(0), now, wall).start_now(now)
+        App::new(config, StdRng::seed_from_u64(0), now, wall()).start_now(now)
     }
 
     /// The row a screen first shows `needle` on.

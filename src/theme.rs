@@ -61,13 +61,17 @@ impl Theme {
     }
 
     fn slot(&self, i: usize) -> Option<Color> {
-        let rgb = self.palette?[i];
+        Some(self.color(self.palette?[i]))
+    }
+
+    /// `rgb` as the terminal can show it.
+    fn color(&self, rgb: u32) -> Color {
         let (r, g, b) = ((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8);
-        Some(if self.truecolor {
+        if self.truecolor {
             Color::Rgb(r, g, b)
         } else {
             Color::Indexed(nearest_256(r, g, b))
-        })
+        }
     }
 
     /// `slot` as the foreground, or `fallback` with the terminal theme.
@@ -133,18 +137,34 @@ impl Theme {
         self.fg(0xC, Style::new().fg(Color::Cyan))
     }
 
-    /// Five steps from easy to hard, for heatmaps of struggle.
+    /// Five steps from easier than average, through average, to harder:
+    /// a cool colour fading to neutral, then warming up. The steps
+    /// between are mixed from the palette, so every theme has its own.
     pub fn heat(&self, level: usize) -> Style {
-        let fallback = [
-            Style::new().add_modifier(Modifier::DIM),
-            Style::new().fg(Color::Green),
-            Style::new().fg(Color::Yellow),
-            Style::new().fg(Color::Magenta),
-            Style::new().fg(Color::Red),
-        ];
+        const COOL: usize = 0xD;
+        const NEUTRAL: usize = 3;
+        const WARM: usize = 8;
         let level = level.min(4);
-        self.fg([3, 0xB, 0xA, 9, 8][level], fallback[level])
+        let Some(palette) = self.palette else {
+            let dim = Modifier::DIM;
+            return [
+                Style::new().fg(Color::Blue),
+                Style::new().fg(Color::Blue).add_modifier(dim),
+                Style::new().fg(Color::DarkGray),
+                Style::new().fg(Color::Red).add_modifier(dim),
+                Style::new().fg(Color::Red),
+            ][level];
+        };
+        let (cool, neutral, warm) = (palette[COOL], palette[NEUTRAL], palette[WARM]);
+        let rgb = [cool, mix(cool, neutral), neutral, mix(warm, neutral), warm][level];
+        Style::new().fg(self.color(rgb))
     }
+}
+
+/// The colour halfway between `a` and `b`.
+fn mix(a: u32, b: u32) -> u32 {
+    let channel = |shift: u32| (((a >> shift) & 0xff) + ((b >> shift) & 0xff)) / 2;
+    channel(16) << 16 | channel(8) << 8 | channel(0)
 }
 
 /// Relative luminance of `rgb`, from 0 (black) to 1 (white).
@@ -355,6 +375,23 @@ pub fn parse_base16(text: &str) -> Option<Palette> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn heat_runs_from_cool_through_neutral_to_warm() {
+        assert_eq!(mix(0x102030, 0x304050), 0x203040);
+        for theme in catalog(None) {
+            let steps: Vec<Style> = (0..5).map(|level| theme.heat(level)).collect();
+            for pair in steps.windows(2) {
+                assert_ne!(pair[0], pair[1], "{}", theme.name);
+            }
+            assert_eq!(theme.heat(9), steps[4], "levels past the end are the end");
+        }
+        let mocha = Theme::palette("mocha", BUNDLED[3].1);
+        assert_eq!(mocha.heat(0).fg, mocha.heading().fg);
+        assert_eq!(mocha.heat(4).fg, mocha.bad().fg);
+    }
+
     #[test]
     fn choose_follows_the_background() {
         let themes = catalog(None);
@@ -387,8 +424,6 @@ mod tests {
             "{err}"
         );
     }
-
-    use super::*;
 
     #[test]
     fn bundled_names_are_unique_and_light_ones_are_light() {
