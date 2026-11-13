@@ -11,12 +11,14 @@ const DURATIONS: [u64; 7] = [30, 60, 90, 120, 180, 300, 600];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row {
     Duration,
+    Submit,
     Op(Op),
 }
 
 impl Row {
-    pub const ALL: [Row; 5] = [
+    pub const ALL: [Row; 6] = [
         Row::Duration,
+        Row::Submit,
         Row::Op(Op::Add),
         Row::Op(Op::Sub),
         Row::Op(Op::Mul),
@@ -55,6 +57,7 @@ impl Menu {
                 };
                 config.session.duration = next.unwrap_or(current);
             }
+            Row::Submit => config.session.submit = config.session.submit.toggled(),
             Row::Op(op) => toggle(&mut config.problems.ops, op),
         }
     }
@@ -75,6 +78,7 @@ fn toggle(ops: &mut Vec<Op>, op: Op) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Submit;
 
     #[test]
     fn moves_wrap_around() {
@@ -112,6 +116,17 @@ mod tests {
         config.session.duration = 75;
         menu.change(&mut config, true);
         assert_eq!(config.session.duration, 90);
+    }
+
+    #[test]
+    fn submit_toggles() {
+        let mut menu = Menu::default();
+        menu.down();
+        let mut config = Config::default();
+        menu.change(&mut config, true);
+        assert_eq!(config.session.submit, Submit::Enter);
+        menu.change(&mut config, false);
+        assert_eq!(config.session.submit, Submit::Auto);
     }
 
     #[test]

@@ -16,7 +16,7 @@ use etcetera::BaseStrategy;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{generate::Settings, problem::Problem};
+use crate::{config::Submit, generate::Settings, problem::Problem};
 
 /// One question, as it was answered.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -33,6 +33,12 @@ pub struct Attempt {
     /// What was typed.
     pub given: String,
     pub correct: bool,
+    /// Given up on with Tab. A skip is never correct.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skipped: bool,
+    /// How the answer was handed in.
+    #[serde(default)]
+    pub submit: Submit,
     /// Milliseconds from the question appearing to the answer.
     pub ms: u64,
     /// How many times Backspace was pressed.
@@ -50,6 +56,8 @@ pub struct SessionRecord {
     pub score: u32,
     /// Whether the clock ran out, as opposed to the session being abandoned.
     pub completed: bool,
+    #[serde(default)]
+    pub submit: Submit,
     pub problems: Settings,
 }
 
@@ -164,6 +172,8 @@ mod tests {
             answer: problem.result().to_string(),
             given: "85".into(),
             correct: true,
+            skipped: false,
+            submit: Submit::Auto,
             ms: 2140,
             edits: 1,
         }
@@ -174,8 +184,15 @@ mod tests {
         let json = serde_json::to_string(&attempt()).unwrap();
         assert_eq!(
             json,
-            r#"{"ts":"2026-11-13T10:00:00Z","session":"00c0ffee00c0ffee","kind":"add","lhs":47,"rhs":38,"question":"47 + 38","answer":"85","given":"85","correct":true,"ms":2140,"edits":1}"#
+            r#"{"ts":"2026-11-13T10:00:00Z","session":"00c0ffee00c0ffee","kind":"add","lhs":47,"rhs":38,"question":"47 + 38","answer":"85","given":"85","correct":true,"submit":"auto","ms":2140,"edits":1}"#
         );
+    }
+
+    #[test]
+    fn rows_from_before_submit_modes_still_load() {
+        let old = r#"{"ts":"2026-11-13T10:00:00Z","session":"00c0ffee00c0ffee","kind":"add","lhs":47,"rhs":38,"question":"47 + 38","answer":"85","given":"85","correct":true,"ms":2140,"edits":1}"#;
+        let attempt: Attempt = serde_json::from_str(old).unwrap();
+        assert_eq!(attempt, self::attempt());
     }
 
     #[test]
@@ -193,6 +210,16 @@ mod tests {
         store.append_attempt(&first).unwrap();
         store.append_attempt(&second).unwrap();
         assert_eq!(store.attempts().unwrap().rows, [first, second]);
+
+        let skip = Attempt {
+            given: String::new(),
+            correct: false,
+            skipped: true,
+            submit: Submit::Enter,
+            ..attempt()
+        };
+        store.append_attempt(&skip).unwrap();
+        assert_eq!(store.attempts().unwrap().rows.last(), Some(&skip));
     }
 
     #[test]

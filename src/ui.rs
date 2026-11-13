@@ -13,14 +13,14 @@ use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Margin, Position, Rect, Size},
     style::{Style, Stylize},
-    text::{Line, Text},
+    text::{Line, Span, Text},
     widgets::Block,
 };
 
 use self::bitmap::{BigText, Scale};
 use crate::{
     app::{App, MAX_INPUT, Menu, Row, Screen, Session, Summary},
-    config::Config,
+    config::{Config, Submit},
     problem::Op,
 };
 
@@ -89,6 +89,7 @@ fn menu_line(row: Row, config: &Config, selected: bool) -> Line<'static> {
             "Duration",
             format!("◂ {} ▸", clock(config.session.duration())),
         ),
+        Row::Submit => ("Submit", format!("◂ {} ▸", config.session.submit.name())),
         Row::Op(op) => {
             let on = config.problems.ops.contains(&op);
             (op_label(op), if on { "[x]" } else { "[ ]" }.to_owned())
@@ -119,21 +120,32 @@ fn render_status(session: &Session, frame: &mut Frame, area: Rect) {
     frame.render_widget(score, area);
 }
 
-/// The question as large as fits, with the answer box beneath it.
+/// The question as large as fits, with the answer box beneath it, any
+/// correction below that, and key hints at the bottom.
 fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
     const INPUT_HEIGHT: u16 = 3;
+    const BELOW: u16 = 2;
     const SPACING: u16 = 1;
+
+    let [area, hints] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+    let hint = match session.submit {
+        Submit::Auto => "Tab skip",
+        Submit::Enter => "Enter submit · Tab skip",
+    };
+    frame.render_widget(Line::from(hint).dim().centered(), hints);
 
     let text = session.problem.to_string();
     let question = BigText::new(&text);
     let room = area.inner(Margin::new(2, 1));
     let room = Size::new(
         room.width,
-        room.height.saturating_sub(INPUT_HEIGHT + SPACING),
+        room.height
+            .saturating_sub(INPUT_HEIGHT + BELOW + 2 * SPACING),
     );
-    let [question_area, input] = Layout::vertical([
+    let [question_area, input, below] = Layout::vertical([
         Constraint::Length(question.height(room)),
         Constraint::Length(INPUT_HEIGHT),
+        Constraint::Length(BELOW),
     ])
     .flex(Flex::Center)
     .spacing(SPACING)
@@ -141,6 +153,14 @@ fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
     frame.render_widget(&question, question_area.inner(Margin::new(2, 0)));
     let input = input.centered_horizontally(Constraint::Length(INPUT_WIDTH));
     render_input(&session.input, frame, input);
+    if let Some(correction) = &session.correction {
+        let line = Line::from(vec![
+            Span::from("✗ ").red(),
+            Span::from(format!("{} = ", correction.question)).dim(),
+            Span::from(correction.answer.as_str()).bold(),
+        ]);
+        frame.render_widget(line.centered(), below);
+    }
 }
 
 /// The answer box, with the terminal cursor just after what has been typed.
@@ -159,13 +179,21 @@ fn render_input(input: &str, frame: &mut Frame, area: Rect) {
 fn render_summary(summary: &Summary, frame: &mut Frame, area: Rect) {
     let pace = match summary.time_per_answer {
         Some(t) => format!("{:.1} s per answer", t.as_secs_f64()),
-        None => "no answers".to_owned(),
+        None => "no correct answers".to_owned(),
     };
+    let mut misses = Vec::new();
+    if summary.wrong > 0 {
+        misses.push(format!("{} wrong", summary.wrong));
+    }
+    if summary.skipped > 0 {
+        misses.push(format!("{} skipped", summary.skipped));
+    }
     let text = Text::from(vec![
         Line::from("Time's up"),
         Line::default(),
         Line::from(summary.score.to_string()).bold(),
         Line::from("correct"),
+        Line::from(misses.join(" · ")).dim(),
         Line::default(),
         Line::from(pace).dim(),
         Line::default(),

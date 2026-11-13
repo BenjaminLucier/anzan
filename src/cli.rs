@@ -4,7 +4,10 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::{config::Config, problem::Op};
+use crate::{
+    config::{Config, Submit},
+    problem::Op,
+};
 
 #[derive(Debug, Parser)]
 #[command(version, about = "暗算 anzan: a terminal trainer for mental math")]
@@ -66,13 +69,17 @@ pub struct SessionArgs {
     /// Operations to ask, comma separated: add, sub, mul, div.
     #[arg(long, value_delimiter = ',', value_name = "OPS")]
     pub ops: Option<Vec<Op>>,
+
+    /// How answers are handed in: auto (as soon as correct) or enter.
+    #[arg(long, value_name = "MODE")]
+    pub submit: Option<Submit>,
 }
 
 impl SessionArgs {
     /// Whether any flag was given, in which case a session starts straight
     /// away instead of opening the menu.
     pub fn is_set(&self) -> bool {
-        self.duration.is_some() || self.ops.is_some()
+        self.duration.is_some() || self.ops.is_some() || self.submit.is_some()
     }
 
     /// Applies these overrides on top of `config`.
@@ -82,6 +89,9 @@ impl SessionArgs {
         }
         if let Some(ops) = &self.ops {
             config.problems.ops.clone_from(ops);
+        }
+        if let Some(submit) = self.submit {
+            config.session.submit = submit;
         }
     }
 }
@@ -103,11 +113,12 @@ mod tests {
 
     #[test]
     fn flags_override_config() {
-        let cli = parse(&["--duration", "60", "--ops", "add,sub"]).unwrap();
+        let cli = parse(&["--duration", "60", "--ops", "add,sub", "--submit", "enter"]).unwrap();
         let mut config = Config::default();
         cli.session.apply(&mut config);
         assert_eq!(config.session.duration, 60);
         assert_eq!(config.problems.ops, [Op::Add, Op::Sub]);
+        assert_eq!(config.session.submit, Submit::Enter);
         assert_eq!(config.problems.add_sub, Config::default().problems.add_sub);
         assert!(cli.session.is_set());
         assert!(!parse(&[]).unwrap().session.is_set());

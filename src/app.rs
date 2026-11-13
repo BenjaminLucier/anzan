@@ -17,7 +17,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub use self::{
     menu::{Menu, Row},
-    session::{Epoch, MAX_INPUT, Session, Summary},
+    session::{Correction, Epoch, MAX_INPUT, Session, Summary},
 };
 use crate::{
     config::Config,
@@ -130,6 +130,10 @@ impl App {
                 session.type_char(c, now, &mut self.records);
             }
             (Screen::Practice(session), KeyCode::Backspace) => session.backspace(),
+            (Screen::Practice(session), KeyCode::Enter) => {
+                session.submit_answer(now, &mut self.records);
+            }
+            (Screen::Practice(session), KeyCode::Tab) => session.skip(now, &mut self.records),
             (Screen::Summary(_), KeyCode::Enter) => self.start(now),
             (Screen::Summary(_), KeyCode::Esc) => self.screen = Screen::Menu(Menu::default()),
             _ => {}
@@ -138,8 +142,7 @@ impl App {
 
     fn start(&mut self, now: Instant) {
         let session = Session::new(
-            self.config.problems.clone(),
-            self.config.session.duration(),
+            &self.config,
             StdRng::from_rng(&mut self.rng),
             self.epoch,
             now,
@@ -161,6 +164,7 @@ mod tests {
     use ratatui::crossterm::event::KeyEventKind;
 
     use super::*;
+    use crate::config::Submit;
 
     const DURATION: Duration = Duration::from_secs(120);
 
@@ -265,6 +269,96 @@ mod tests {
 
     fn on_menu(app: &App) -> bool {
         matches!(app.screen, Screen::Menu(_))
+    }
+
+    fn enter_mode_app() -> (App, Instant) {
+        let t0 = Instant::now();
+        let mut config = Config::default();
+        config.session.submit = Submit::Enter;
+        let app = App::new(config, StdRng::seed_from_u64(0), t0, wall_epoch()).start_now(t0);
+        (app, t0)
+    }
+
+    fn attempts(app: &mut App) -> Vec<Attempt> {
+        records(app)
+            .into_iter()
+            .filter_map(|r| match r {
+                Record::Attempt(a) => Some(a),
+                Record::Session(_) => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn enter_mode_waits_for_enter() {
+        let (mut app, t0) = enter_mode_app();
+        let first = session(&app).problem;
+        type_str(&mut app, &first.result().to_string(), t0);
+        assert_eq!(session(&app).problem, first);
+        press(&mut app, KeyCode::Enter, t0 + secs(2.0));
+        assert_eq!(session(&app).score, 1);
+        assert!(session(&app).correction.is_none());
+        let [attempt] = attempts(&mut app).try_into().unwrap();
+        assert!(attempt.correct);
+        assert_eq!(attempt.submit, Submit::Enter);
+        assert_eq!(attempt.ms, 2000);
+    }
+
+    #[test]
+    fn wrong_answer_counts_and_shows_the_correction() {
+        let (mut app, t0) = enter_mode_app();
+        let first = session(&app).problem;
+        type_str(&mut app, &(first.result() + 1).to_string(), t0);
+        press(&mut app, KeyCode::Enter, t0);
+        assert_eq!(session(&app).wrong, 1);
+        assert_eq!(session(&app).score, 0);
+        assert_ne!(session(&app).problem, first);
+        let correction = session(&app).correction.clone().unwrap();
+        assert_eq!(correction.question, first.to_string());
+        assert_eq!(correction.answer, first.result().to_string());
+        let [attempt] = attempts(&mut app).try_into().unwrap();
+        assert!(!attempt.correct);
+        assert_eq!(attempt.given, (first.result() + 1).to_string());
+
+        // The next correct answer clears the correction.
+        let answer = session(&app).problem.result().to_string();
+        type_str(&mut app, &answer, t0);
+        press(&mut app, KeyCode::Enter, t0);
+        assert!(session(&app).correction.is_none());
+    }
+
+    #[test]
+    fn enter_with_nothing_typed_does_nothing() {
+        let (mut app, t0) = enter_mode_app();
+        let first = session(&app).problem;
+        type_str(&mut app, " ", t0);
+        press(&mut app, KeyCode::Enter, t0);
+        assert_eq!(session(&app).problem, first);
+        assert!(attempts(&mut app).is_empty());
+    }
+
+    #[test]
+    fn enter_submits_a_wrong_answer_in_auto_mode_too() {
+        let (mut app, t0) = new_app();
+        let first = session(&app).problem;
+        type_str(&mut app, &(first.result() + 1).to_string(), t0);
+        press(&mut app, KeyCode::Enter, t0);
+        assert_eq!(session(&app).wrong, 1);
+    }
+
+    #[test]
+    fn tab_skips() {
+        let (mut app, t0) = new_app();
+        let first = session(&app).problem;
+        type_str(&mut app, "1", t0);
+        press(&mut app, KeyCode::Tab, t0);
+        assert_eq!(session(&app).skipped, 1);
+        assert_ne!(session(&app).problem, first);
+        let [attempt] = attempts(&mut app).try_into().unwrap();
+        assert!(attempt.skipped && !attempt.correct);
+        assert_eq!(attempt.given, "1");
+        app.tick(t0 + DURATION);
+        assert_eq!(summary(&app).skipped, 1);
     }
 
     #[test]
@@ -422,6 +516,8 @@ mod tests {
         assert!(attempt.correct);
         assert_eq!(attempt.ms, 2500);
         assert_eq!(attempt.edits, 1);
+        assert!(!attempt.skipped);
+        assert_eq!(attempt.submit, Submit::Auto);
         assert_eq!(attempt.ts, "2026-11-13T10:00:02.5Z".parse().unwrap());
         assert_eq!(attempt.session, session(&app).id);
     }

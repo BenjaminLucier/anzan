@@ -8,6 +8,11 @@
 [session]
 # Length of a session, in seconds.
 duration = 120
+# How answers are handed in:
+#   "auto"  as soon as what you type is correct, without Enter. Wrong
+#           answers are never final, only slow; Enter submits one anyway.
+#   "enter" only when you press Enter, so wrong answers count as wrong.
+submit = "auto"
 
 [problems]
 # Operations to ask, chosen at random with equal odds.

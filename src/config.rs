@@ -26,11 +26,54 @@ pub struct Config {
 pub struct Session {
     /// Length of a session, in seconds.
     pub duration: u64,
+    pub submit: Submit,
 }
 
 impl Default for Session {
     fn default() -> Self {
-        Self { duration: 120 }
+        Self {
+            duration: 120,
+            submit: Submit::Auto,
+        }
+    }
+}
+
+/// How an answer is handed in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Submit {
+    /// As soon as what is typed is correct, without pressing Enter. A wrong
+    /// answer is never final, only slow; Enter still submits one on purpose.
+    #[default]
+    Auto,
+    /// Only on Enter, so a wrong answer counts as wrong.
+    Enter,
+}
+
+impl Submit {
+    pub fn name(self) -> &'static str {
+        match self {
+            Submit::Auto => "auto",
+            Submit::Enter => "enter",
+        }
+    }
+
+    pub fn toggled(self) -> Self {
+        match self {
+            Submit::Auto => Submit::Enter,
+            Submit::Enter => Submit::Auto,
+        }
+    }
+}
+
+impl std::str::FromStr for Submit {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        [Submit::Auto, Submit::Enter]
+            .into_iter()
+            .find(|m| m.name() == s)
+            .ok_or_else(|| format!("unknown submit mode `{s}`: expected auto or enter"))
     }
 }
 

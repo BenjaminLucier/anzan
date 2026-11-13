@@ -18,6 +18,8 @@ struct AttemptRow<'a> {
     answer: &'a str,
     given: &'a str,
     correct: bool,
+    skipped: bool,
+    submit: &'static str,
     ms: u64,
     edits: u32,
 }
@@ -43,6 +45,8 @@ pub fn attempts(rows: &[Attempt], out: impl Write) -> Result<()> {
             answer: &a.answer,
             given: &a.given,
             correct: a.correct,
+            skipped: a.skipped,
+            submit: a.submit.name(),
             ms: a.ms,
             edits: a.edits,
         })?;
@@ -70,7 +74,10 @@ pub fn sessions(rows: &[SessionRecord], out: impl Write) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::problem::{Op, Problem};
+    use crate::{
+        config::Submit,
+        problem::{Op, Problem},
+    };
 
     #[test]
     fn attempts_as_csv() {
@@ -87,6 +94,8 @@ mod tests {
             answer: "266".into(),
             given: "266".into(),
             correct: true,
+            skipped: false,
+            submit: Submit::Enter,
             ms: 3100,
             edits: 0,
         };
@@ -94,8 +103,8 @@ mod tests {
         attempts(&[attempt], &mut out).unwrap();
         assert_eq!(
             String::from_utf8(out).unwrap(),
-            "ts,session,kind,question,answer,given,correct,ms,edits\n\
-             2026-11-13T10:00:00.25Z,abc,mul,7 × 38,266,266,true,3100,0\n"
+            "ts,session,kind,question,answer,given,correct,skipped,submit,ms,edits\n\
+             2026-11-13T10:00:00.25Z,abc,mul,7 × 38,266,266,true,false,enter,3100,0\n"
         );
     }
 }
