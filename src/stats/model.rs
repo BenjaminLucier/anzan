@@ -79,10 +79,10 @@ pub struct Baselines {
 const MIN_FOR_SIZE: usize = 5;
 
 impl Baselines {
-    pub fn build(attempts: &[Attempt], by_submit: bool) -> Self {
+    pub fn build<'a>(attempts: impl IntoIterator<Item = &'a Attempt>, by_submit: bool) -> Self {
         let mut kinds: HashMap<_, Vec<u64>> = HashMap::new();
         let mut sizes: HashMap<_, Vec<u64>> = HashMap::new();
-        for a in attempts.iter().filter(|a| a.correct) {
+        for a in attempts.into_iter().filter(|a| a.correct) {
             let (kind, submit) = (a.problem.kind(), by_submit.then_some(a.submit));
             kinds.entry((kind, submit)).or_default().push(a.ms);
             if let Some(size) = Size::of(&a.problem) {
@@ -189,14 +189,19 @@ pub struct SkillModel {
 
 impl SkillModel {
     /// Learns from `attempts`, weighting each by its age at `now`.
-    pub fn build(attempts: &[Attempt], scoring: &Scoring, now: Timestamp) -> Self {
+    pub fn build<'a>(
+        attempts: impl IntoIterator<Item = &'a Attempt, IntoIter: Clone>,
+        scoring: &Scoring,
+        now: Timestamp,
+    ) -> Self {
+        let attempts = attempts.into_iter();
         let mut model = Self {
             scoring: scoring.clone(),
-            baselines: Baselines::build(attempts, scoring.by_submit),
+            baselines: Baselines::build(attempts.clone(), scoring.by_submit),
             now,
             ..Self::default()
         };
-        attempts.iter().for_each(|a| model.observe(a));
+        attempts.for_each(|a| model.observe(a));
         model
     }
 

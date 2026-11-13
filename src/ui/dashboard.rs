@@ -22,10 +22,9 @@ use super::count;
 use crate::{
     app::{Dashboard, Side},
     history::History,
-    problem::Kind,
     stats::{
         features::Feature,
-        report::{Cost, GRID, KindReport, Report, SessionReport, Speed, WeakSpot},
+        report::{Cost, DigitGrid, KindReport, Report, SessionReport, Speed, WeakSpot},
     },
     store::Attempt,
     theme::Theme,
@@ -438,15 +437,18 @@ fn month(m: i8) -> &'static str {
     NAMES[usize::try_from(m - 1).unwrap_or(0)]
 }
 
-/// Rows of the band under a kind's speed chart: a title, ten rows and a
-/// note, or the times-table grid.
-const BAND: u16 = 12;
+/// Rows of the band under a kind's speed chart: the tallest grid, which
+/// is a title, a heading, ten digits, a gap and a legend. Lists in the
+/// band have a title, a note, and the rows between.
+const BAND: u16 = 14;
 
 /// The fewest rows worth giving the speed chart.
 const MIN_CHART: u16 = 8;
 
-/// Width of the times-table grid.
-const GRID_WIDTH: u16 = 28;
+/// Width of a grid of `digits` digits: a label, then three cells each.
+fn grid_width(grid: &DigitGrid) -> u16 {
+    4 + 3 * grid.digits.clone().count() as u16
+}
 
 /// One kind: its numbers, its speed, and beneath them what its skills
 /// cost, its hardest questions and, where there are any, the facts
@@ -484,14 +486,15 @@ fn kind_details(report: &Report, kind: &KindReport, t: &Theme, frame: &mut Frame
         return;
     }
 
-    let has_grid = matches!(stats.kind, Kind::Mul | Kind::Div | Kind::LongMul);
+    let grid_width = kind.grid.as_ref().map_or(0, grid_width);
+    let has_grid = kind.grid.is_some();
     // The grid takes the place of the hardest questions unless there is
     // room for all three.
-    let wide = band.width >= 2 * 32 + GRID_WIDTH + 4;
+    let wide = band.width >= 2 * 32 + grid_width + 4;
     let [costs_area, hardest_area, grid_area] = Layout::horizontal([
         Constraint::Fill(1),
         Constraint::Fill(u16::from(!has_grid || wide)),
-        Constraint::Length(if has_grid { GRID_WIDTH } else { 0 }),
+        Constraint::Length(grid_width),
     ])
     .spacing(2)
     .areas(band);
@@ -503,8 +506,8 @@ fn kind_details(report: &Report, kind: &KindReport, t: &Theme, frame: &mut Frame
         let lines = hardest(t, kind, report.overall, hardest_area.width);
         frame.render_widget(Text::from(lines), hardest_area);
     }
-    if has_grid {
-        frame.render_widget(Text::from(fact_grid(t, report)), grid_area);
+    if let Some(grid) = &kind.grid {
+        frame.render_widget(Text::from(digit_grid(t, grid)), grid_area);
     }
 }
 
@@ -584,18 +587,18 @@ fn level(d: f64) -> usize {
     }
 }
 
-/// The times-table heatmap: a solid cell for each fact seen, coloured
-/// from easier than average to harder.
-fn fact_grid(t: &Theme, report: &Report) -> Vec<Line<'static>> {
+/// A kind's heatmap: a solid cell for each pair of digits seen, coloured
+/// from easier than the kind's average to harder.
+fn digit_grid(t: &Theme, grid: &DigitGrid) -> Vec<Line<'static>> {
     const CELL: &str = "██";
-    let mut lines = vec![Line::from("Times tables").style(t.heading())];
-    let header: String = GRID.map(|b| format!("{b:>3}")).collect();
-    lines.push(Line::from(format!("  ×{header}")).style(t.muted()));
-    for (a, row) in GRID.zip(&report.grid) {
+    let mut lines = vec![Line::from(grid.title).style(t.heading())];
+    let header: String = grid.digits.clone().map(|b| format!("{b:>3}")).collect();
+    lines.push(Line::from(format!("  {}{header}", grid.sign)).style(t.muted()));
+    for (a, row) in grid.digits.clone().zip(&grid.cells) {
         let mut spans = vec![Span::from(format!("{a:>3} ")).style(t.muted())];
         for cell in row {
             spans.push(match cell {
-                Some(skill) => Span::from(CELL).style(t.heat(level(skill.score - report.overall))),
+                Some(skill) => Span::from(CELL).style(t.heat(level(skill.score - grid.overall))),
                 None => Span::from("  "),
             });
             spans.push(Span::from(" "));

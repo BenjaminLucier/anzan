@@ -20,6 +20,12 @@ pub enum Feature {
     Carries(u8),
     /// The number of borrows in a subtraction.
     Borrows(u8),
+    /// The last digits of the two numbers in an addition, smaller first:
+    /// 47 + 38 adds 7 and 8.
+    UnitsAdded(u8, u8),
+    /// The last digits in a subtraction, of what is taken from and then
+    /// of what is taken: 85 − 38 takes 8 from 5, which needs a borrow.
+    UnitsTaken(u8, u8),
     /// Multiplying by this number, from 2 to 12: its times table, and
     /// the same table stretched, as in 7 × 38.
     Times(u8),
@@ -118,6 +124,11 @@ impl Feature {
         match self {
             Feature::Fact(..) => Some("Every question that uses this fact along the way."),
             Feature::Times(_) => Some("Every multiplication with this as one of its numbers."),
+            Feature::UnitsAdded(..) => Some("Every addition whose numbers end in these digits."),
+            Feature::UnitsTaken(a, b) if a < b => {
+                Some("Every subtraction whose numbers end in these digits, which needs a borrow.")
+            }
+            Feature::UnitsTaken(..) => Some("Every subtraction whose numbers end in these digits."),
             Feature::Trick(trick) => Some(trick.how()),
             _ => None,
         }
@@ -136,6 +147,8 @@ impl fmt::Display for Feature {
             Feature::Fact(a, b) => write!(f, "the fact {a} × {b}"),
             Feature::Carries(n) => count(f, '+', *n, "carry", "carries"),
             Feature::Borrows(n) => count(f, '−', *n, "borrow", "borrows"),
+            Feature::UnitsAdded(a, b) => write!(f, "+ last digits {a} + {b}"),
+            Feature::UnitsTaken(a, b) => write!(f, "− last digits {a} − {b}"),
             Feature::Times(n) => write!(f, "multiplying by {n}"),
             Feature::DividedBy(n) => write!(f, "dividing by {n}"),
             Feature::Denominator(d) => write!(f, "fractions over {d}"),
@@ -150,8 +163,19 @@ pub fn features(problem: &Problem) -> Vec<Feature> {
     let mut out = vec![Feature::Item(canonical(problem))];
     if let Some((op, lhs, rhs)) = problem.arithmetic() {
         match op {
-            Op::Add => out.push(Feature::Carries(carries(lhs, rhs))),
-            Op::Sub => out.push(Feature::Borrows(borrows(lhs, rhs))),
+            Op::Add => {
+                out.push(Feature::Carries(carries(lhs, rhs)));
+                if lhs >= 0 && rhs >= 0 {
+                    let (a, b) = (units(lhs), units(rhs));
+                    out.push(Feature::UnitsAdded(a.min(b), a.max(b)));
+                }
+            }
+            Op::Sub => {
+                out.push(Feature::Borrows(borrows(lhs, rhs)));
+                if lhs >= rhs && rhs >= 0 {
+                    out.push(Feature::UnitsTaken(units(lhs), units(rhs)));
+                }
+            }
             Op::Mul => {
                 out.extend(facts(lhs, rhs));
                 let mut tables: Vec<i64> = [lhs, rhs]
@@ -265,6 +289,11 @@ pub fn canonical(problem: &Problem) -> Problem {
         },
         other => other,
     }
+}
+
+/// The last digit of a number that is not negative.
+fn units(n: i64) -> u8 {
+    (n % 10) as u8
 }
 
 fn digits(n: i64) -> impl Iterator<Item = u8> {
@@ -474,6 +503,8 @@ mod tests {
             Feature::Carries(0),
             Feature::Carries(1),
             Feature::Borrows(3),
+            Feature::UnitsAdded(7, 8),
+            Feature::UnitsTaken(3, 8),
             Feature::Times(12),
             Feature::DividedBy(12),
             Feature::Denominator(20),
@@ -500,6 +531,24 @@ mod tests {
     fn other_features() {
         let p = Problem::Add { lhs: 47, rhs: 38 };
         assert_eq!(features(&p)[1], Feature::Carries(1));
+        assert_eq!(features(&p)[2], Feature::UnitsAdded(7, 8));
+        let swapped = Problem::Add { lhs: 38, rhs: 47 };
+        assert_eq!(features(&swapped)[2], Feature::UnitsAdded(7, 8));
+        // Taking away is not symmetric: 5 − 8 borrows and 8 − 5 does not.
+        let p = Problem::Sub { lhs: 85, rhs: 38 };
+        assert_eq!(
+            features(&p)[1..3],
+            [Feature::Borrows(1), Feature::UnitsTaken(5, 8)]
+        );
+        let p = Problem::Sub { lhs: 88, rhs: 35 };
+        assert!(features(&p).contains(&Feature::UnitsTaken(8, 5)));
+        // Negative numbers have no last digit worth the name.
+        let p = Problem::Add { lhs: -47, rhs: 38 };
+        assert!(
+            !features(&p)
+                .iter()
+                .any(|f| matches!(f, Feature::UnitsAdded(..)))
+        );
         let p = Problem::Convert {
             num: 1,
             den: 7,

@@ -48,7 +48,6 @@ pub struct Report {
     /// The average struggle, which every skill is measured against.
     pub overall: f64,
     pub speed: Speed,
-    pub grid: Vec<Vec<Option<Skill>>>,
     pub activity: BTreeMap<Date, u32>,
     /// Weakest first.
     pub weak: Vec<WeakSpot>,
@@ -63,6 +62,8 @@ pub struct KindReport {
     pub costs: Vec<Cost>,
     /// Its questions that have been the most struggle.
     pub hardest: Vec<(Problem, Skill)>,
+    /// How its single-digit steps have gone, for kinds built on them.
+    pub grid: Option<DigitGrid>,
 }
 
 /// A session and the attempts made in it, as indices into the history.
@@ -91,9 +92,10 @@ impl Report {
             .map(|stats| {
                 let of_kind = attempts.iter().filter(|a| a.problem.kind() == stats.kind);
                 KindReport {
-                    speed: Speed::of(of_kind, since),
+                    speed: Speed::of(of_kind.clone(), since),
                     costs: costs.remove(&stats.kind).unwrap_or_default(),
                     hardest: hardest.remove(&stats.kind).unwrap_or_default(),
+                    grid: DigitGrid::of(stats.kind, of_kind, scoring, now),
                     stats,
                 }
             })
@@ -109,7 +111,6 @@ impl Report {
             trend: trend(&history.sessions, fingerprint),
             overall: model.overall(),
             speed: Speed::of(attempts, since),
-            grid: fact_grid(&model),
             activity: activity(attempts, tz),
             weak: weak_spots(attempts, &model, WEAK_SPOTS),
         }
@@ -358,20 +359,69 @@ pub fn activity<'a>(
     days
 }
 
-/// The smallest and largest digit in the times-table grid.
-pub const GRID: std::ops::RangeInclusive<u8> = 2..=9;
+/// A heatmap of the single-digit steps one kind of problem is built on:
+/// the times tables for multiplication and division, and the last
+/// digits for addition and subtraction.
+///
+/// Each kind has its own, from its own attempts. Knowing 7 × 8 and
+/// seeing that 56 ÷ 7 is 8 are different skills, and one grid for both
+/// would hide which of them is slow.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DigitGrid {
+    pub title: &'static str,
+    /// The operation: a cell is its row's digit, this, its column's.
+    pub sign: char,
+    /// The digits down the side and along the top.
+    pub digits: std::ops::RangeInclusive<u8>,
+    /// Struggle with each pair, a row for each digit, or `None` for a
+    /// pair never seen.
+    pub cells: Vec<Vec<Option<Skill>>>,
+    /// The average struggle over the kind, which cells are shaded
+    /// against.
+    pub overall: f64,
+}
 
-/// Struggle with each single-digit multiplication fact, or `None` for
-/// facts never seen. Indexed from 2, and symmetric.
-pub fn fact_grid(model: &SkillModel) -> Vec<Vec<Option<Skill>>> {
-    GRID.map(|a| {
-        GRID.map(|b| {
-            let skill = model.feature(&Feature::Fact(a.min(b), a.max(b)));
-            (skill.count > 0).then_some(skill)
+impl DigitGrid {
+    /// The grid for `kind` from `attempts`, all of that kind, if it is a
+    /// kind with single-digit steps.
+    pub fn of<'a>(
+        kind: Kind,
+        attempts: impl IntoIterator<Item = &'a Attempt, IntoIter: Clone>,
+        scoring: &Scoring,
+        now: Timestamp,
+    ) -> Option<Self> {
+        let fact = |a: u8, b: u8| Feature::Fact(a.min(b), a.max(b));
+        let (title, sign, digits, feature): (_, _, _, fn(u8, u8) -> Feature) = match kind {
+            Kind::Add => ("Last digits", '+', 0..=9, |a, b| {
+                Feature::UnitsAdded(a.min(b), a.max(b))
+            }),
+            Kind::Sub => ("Last digits", '−', 0..=9, Feature::UnitsTaken),
+            Kind::Mul | Kind::LongMul => ("Times tables", '×', 2..=9, fact),
+            // A division is shaded by the multiplication it undoes.
+            Kind::Div => ("Times tables, undone", '×', 2..=9, fact),
+            _ => return None,
+        };
+        let model = SkillModel::build(attempts, scoring, now);
+        let cells = digits
+            .clone()
+            .map(|a| {
+                digits
+                    .clone()
+                    .map(|b| {
+                        let skill = model.feature(&feature(a, b));
+                        (skill.count > 0).then_some(skill)
+                    })
+                    .collect()
+            })
+            .collect();
+        Some(Self {
+            title,
+            sign,
+            digits,
+            cells,
+            overall: model.overall(),
         })
-        .collect()
-    })
-    .collect()
+    }
 }
 
 /// For each kind, its `n` questions that have been the most struggle,
@@ -475,8 +525,8 @@ pub struct Cost {
 const MIN_FOR_COST: u32 = 3;
 
 /// The cost of each skill within each kind of problem, dearest first.
-/// Single questions and single facts are left out: the first have the
-/// weak spots list, and the second the times-table grid.
+/// Single questions and single-digit steps are left out: the first
+/// have the weak spots list, and the second the kind's grid.
 pub fn costs(attempts: &[Attempt], baselines: &Baselines) -> BTreeMap<Kind, Vec<Cost>> {
     let mut groups: BTreeMap<(Kind, Feature), (u32, f64)> = BTreeMap::new();
     for a in attempts.iter().filter(|a| a.correct) {
@@ -485,7 +535,11 @@ pub fn costs(attempts: &[Attempt], baselines: &Baselines) -> BTreeMap<Kind, Vec<
         };
         let log = (a.ms.max(1) as f64 / usual.max(1.0)).ln();
         for feature in features(&a.problem) {
-            if matches!(feature, Feature::Item(_) | Feature::Fact(..)) {
+            let on_the_grid = matches!(
+                feature,
+                Feature::Fact(..) | Feature::UnitsAdded(..) | Feature::UnitsTaken(..)
+            );
+            if on_the_grid || matches!(feature, Feature::Item(_)) {
                 continue;
             }
             let (count, logs) = groups.entry((a.problem.kind(), feature)).or_default();
@@ -684,7 +738,7 @@ mod tests {
     }
 
     #[test]
-    fn grid_and_hardest_come_from_the_model() {
+    fn hardest_questions_need_more_than_one_attempt() {
         let mut attempts = Vec::new();
         for _ in 0..3 {
             attempts.push(attempt(mul(7, 8), 4000, true));
@@ -692,15 +746,69 @@ mod tests {
         }
         attempts.push(attempt(mul(9, 9), 60_000, true));
         let model = SkillModel::build(&attempts, &Scoring::default(), now());
-        let grid = fact_grid(&model);
-        assert_eq!(grid.len(), 8);
-        assert!(grid[7 - 2][8 - 2].is_some());
-        assert_eq!(grid[7 - 2][8 - 2], grid[8 - 2][7 - 2]);
-        assert!(grid[5 - 2][5 - 2].is_none());
         // 9 × 9 was slower still, but once is not enough to say so.
         let hardest = hardest(&model, 2, 1);
         assert_eq!(hardest[&Kind::Mul].len(), 1);
         assert_eq!(hardest[&Kind::Mul][0].0, mul(7, 8));
+    }
+
+    fn grid(kind: Kind, attempts: &[Attempt]) -> DigitGrid {
+        let of_kind = attempts.iter().filter(|a| a.problem.kind() == kind);
+        DigitGrid::of(kind, of_kind, &Scoring::default(), now()).expect("a grid")
+    }
+
+    #[test]
+    fn each_kind_has_its_own_grid() {
+        let div = |lhs, rhs| Problem::Div { lhs, rhs };
+        let sub = |lhs, rhs| Problem::Sub { lhs, rhs };
+        let mut attempts = Vec::new();
+        for _ in 0..4 {
+            // 7 × 8 is quick to multiply and slow to divide out.
+            attempts.push(attempt(mul(7, 8), 1000, true));
+            attempts.push(attempt(mul(3, 4), 1000, true));
+            attempts.push(attempt(div(56, 7), 6000, true));
+            attempts.push(attempt(div(12, 3), 1000, true));
+            attempts.push(attempt(add(47, 38), 5000, true));
+            attempts.push(attempt(add(12, 31), 1000, true));
+            attempts.push(attempt(sub(85, 38), 5000, true));
+            attempts.push(attempt(sub(88, 35), 1000, true));
+        }
+        let above = |grid: &DigitGrid, a: u8, b: u8| {
+            let first = *grid.digits.start();
+            let cell = grid.cells[usize::from(a - first)][usize::from(b - first)];
+            cell.map(|skill| skill.score - grid.overall)
+        };
+
+        let (times, undone) = (grid(Kind::Mul, &attempts), grid(Kind::Div, &attempts));
+        assert_eq!(times.cells.len(), 8);
+        assert!(
+            above(&times, 7, 8).unwrap().abs() < 1e-9,
+            "at its usual pace"
+        );
+        assert!(above(&undone, 7, 8).unwrap() > 0.1, "slow in division");
+        assert_eq!(above(&undone, 7, 8), above(&undone, 8, 7));
+        assert_eq!(above(&times, 5, 5), None);
+        assert_ne!(times.title, undone.title);
+
+        // Addition is by last digits, either way round, from 0.
+        let sums = grid(Kind::Add, &attempts);
+        assert_eq!((sums.cells.len(), sums.sign), (10, '+'));
+        assert!(above(&sums, 7, 8).unwrap() > 0.1);
+        assert_eq!(above(&sums, 8, 7), above(&sums, 7, 8));
+        assert!(above(&sums, 1, 2).unwrap() < 0.0);
+        assert_eq!(above(&sums, 0, 0), None);
+
+        // Subtraction is not symmetric: the row is what is taken from.
+        let differences = grid(Kind::Sub, &attempts);
+        assert!(above(&differences, 5, 8).unwrap() > 0.1);
+        assert!(above(&differences, 8, 5).unwrap() < 0.0);
+
+        // Kinds without single-digit steps have no grid.
+        let squares = [attempt(Problem::Square { base: 12 }, 1000, true)];
+        assert_eq!(
+            DigitGrid::of(Kind::Square, &squares, &Scoring::default(), now()),
+            None
+        );
     }
 
     #[test]

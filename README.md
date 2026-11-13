@@ -121,7 +121,7 @@ it was than your usual time for that kind and size of problem, so 12 × 97
 is compared with other two-digit products rather than with 2 × 3, with
 extra for misses, skips and backspaces. Those scores are averaged over
 skills: a single question, a times-table fact, multiplying by 7, a number
-of carries, or a question with a shortcut to spot, such as 47 × 53
+of carries, a pair of last digits to add or subtract, or a question with a shortcut to spot, such as 47 × 53
 (50² − 3²) or 16 × 35 (8 × 70).
 
 | Mode               | Meaning     | Problems                                                 |
@@ -149,8 +149,11 @@ right shows the details of whatever is selected:
 - **Kinds**: accuracy and median time for each kind practised. Select one
   for its speed curve, and beneath it what each of its skills costs you in
   time (carrying twice, multiplying by 7, numbers ending in 8 or 9), its
-  hardest questions, and for multiplication and division a times-table
-  heatmap running from easier than your average to harder.
+  hardest questions, and a heatmap of the single-digit steps it is built
+  on, running from easier than your average for that kind to harder:
+  the times tables for multiplication and for division, each from its
+  own answers, and the last digits for addition (7 + 8) and subtraction
+  (5 − 8, which borrows).
 - **Sessions**: every session, newest first. Select one to see each
   question asked, the answer, what you gave and how long it took.
 - **Weak spots**: the questions and the skills that take you more effort
