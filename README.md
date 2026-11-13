@@ -266,6 +266,10 @@ removed for good, so export first if you may want them back.
 
 `ANZAN_CONFIG` and `ANZAN_DATA_DIR` override the two locations.
 
+`ANZAN_SEED`, set to any whole number, makes the questions repeat: the
+same seed asks the same questions in the same order, given the same
+settings and history. Sessions are still recorded as usual.
+
 ## Inspiration
 
 Anzan is inspired by [Zetamac](https://arithmetic.zetamac.com), the

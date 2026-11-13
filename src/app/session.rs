@@ -3,7 +3,7 @@
 use std::time::{Duration, Instant};
 
 use jiff::{SignedDuration, Timestamp, Unit};
-use rand::{RngExt, rngs::StdRng};
+use rand::rngs::StdRng;
 
 use super::Journal;
 use crate::{
@@ -96,7 +96,9 @@ impl Session {
         epoch: Epoch,
         now: Instant,
     ) -> Self {
-        let id = format!("{:016x}", rng.random::<u64>());
+        // Not from `rng`, which `ANZAN_SEED` can fix: every session needs an
+        // id of its own even when the questions repeat.
+        let id = format!("{:016x}", rand::random::<u64>());
         let settings = config.problems.clone();
         let duration = config.session.duration();
         let mode = config.session.mode;

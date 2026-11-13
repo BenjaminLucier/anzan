@@ -13,6 +13,7 @@ use anzan::{
 };
 use clap::Parser;
 use jiff::Timestamp;
+use rand::{SeedableRng, rngs::StdRng};
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{self, Event},
@@ -34,6 +35,23 @@ fn main() -> Result<()> {
     }
 }
 
+/// Random unless `$ANZAN_SEED` is set, in which case the same seed asks
+/// the same questions in the same order (given the same settings and
+/// history). Used to record the README's demo, and handy for reproducing
+/// a bug.
+fn rng() -> Result<StdRng> {
+    match std::env::var("ANZAN_SEED") {
+        Ok(seed) => {
+            let seed = seed
+                .trim()
+                .parse()
+                .with_context(|| format!("ANZAN_SEED must be a whole number, not {seed:?}"))?;
+            Ok(StdRng::seed_from_u64(seed))
+        }
+        Err(_) => Ok(rand::make_rng()),
+    }
+}
+
 /// Opens the menu, or goes straight into a session if `start` is set.
 fn practice(config: Config, config_path: &Path, start: bool) -> Result<()> {
     let data_dir = store::data_dir()?;
@@ -52,7 +70,7 @@ fn practice(config: Config, config_path: &Path, start: bool) -> Result<()> {
     ];
     let (themes, current) = themes(&config, config_path)?;
     let question = config.theme.question;
-    let mut app = App::new(config, rand::make_rng(), now, Timestamp::now())
+    let mut app = App::new(config, rng()?, now, Timestamp::now())
         .with_history(history)
         .with_themes(themes, current)
         .with_paths(paths);
