@@ -7,6 +7,10 @@
 use super::grid::Grid;
 use crate::expr::{Expr, superscript};
 
+/// The most rows any question takes: a fraction, with its bar on the
+/// middle one. Shorter questions centre onto that row too.
+pub const MAX_HEIGHT: u16 = 3;
+
 /// A laid-out expression.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Laid {
@@ -139,6 +143,28 @@ mod tests {
             art(&layout(&row)),
             [" 1          3", "─── → +30, ─── → −8", " 4          4"]
         );
+    }
+
+    /// Centred in the rows of the tallest, every question has its axis on
+    /// the middle row, so the eye never has to hunt for it.
+    #[test]
+    fn every_question_centres_on_the_middle_row() {
+        use rand::{SeedableRng, rngs::StdRng};
+
+        use crate::{generate::Settings, problem::Kind};
+
+        let settings = Settings::default();
+        let mut rng = StdRng::seed_from_u64(0);
+        for &kind in Kind::ALL {
+            for _ in 0..50 {
+                let problem = settings.generate_kind(kind, &mut rng);
+                let laid = layout(&problem.expr());
+                let height = laid.grid.height();
+                assert!(height <= usize::from(MAX_HEIGHT), "{problem}");
+                let top = (usize::from(MAX_HEIGHT) - height) / 2;
+                assert_eq!(top + laid.axis, 1, "{problem}");
+            }
+        }
     }
 
     #[test]

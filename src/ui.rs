@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Margin, Position, Rect, Size},
+    layout::{Constraint, Flex, Layout, Margin, Position, Rect},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Clear, Padding, Paragraph},
 };
@@ -156,12 +156,17 @@ fn render_status(session: &Session, t: &Theme, frame: &mut Frame, area: Rect) {
     frame.render_widget(score, area);
 }
 
-/// The question as large as fits, with the answer box beneath it, any
-/// correction below that, and key hints at the bottom.
+/// The question with the answer box beneath it, any correction below
+/// that, and key hints at the bottom.
+///
+/// Nothing moves from one question to the next: the prompt has its row
+/// whether or not there is one, and the question has the rows of the
+/// tallest, with its math axis on the middle one.
 fn render_practice(session: &Session, t: &Theme, frame: &mut Frame, area: Rect) {
     const INPUT_HEIGHT: u16 = 3;
     const BELOW: u16 = 2;
     const SPACING: u16 = 1;
+    const PROMPT_HEIGHT: u16 = 1;
 
     let [area, hints] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     let hint = match session.submit {
@@ -173,18 +178,18 @@ fn render_practice(session: &Session, t: &Theme, frame: &mut Frame, area: Rect) 
     let text = session.problem.to_string();
     let grid = math::layout(&session.problem.expr()).grid;
     let question = Drawing::new(Some(grid), &text).style(t.base().bold());
-    let room = area.inner(Margin::new(2, 1));
-    let room = Size::new(
-        room.width,
-        room.height
-            .saturating_sub(INPUT_HEIGHT + BELOW + 2 * SPACING),
-    );
+    // On a terminal too short for stacked notation, every question is
+    // one line of plain text.
+    let fixed = PROMPT_HEIGHT + INPUT_HEIGHT + BELOW + 3 * SPACING;
+    let question_height = if area.height >= fixed + math::MAX_HEIGHT {
+        math::MAX_HEIGHT
+    } else {
+        1
+    };
     let prompt = session.problem.prompt();
-    let prompt_height = u16::from(prompt.is_some());
-    let room = Size::new(room.width, room.height.saturating_sub(prompt_height));
     let [prompt_area, question_area, input, below] = Layout::vertical([
-        Constraint::Length(prompt_height),
-        Constraint::Length(question.height(room)),
+        Constraint::Length(PROMPT_HEIGHT),
+        Constraint::Length(question_height),
         Constraint::Length(INPUT_HEIGHT),
         Constraint::Length(BELOW),
     ])
@@ -274,7 +279,55 @@ fn clock(remaining: Duration) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
+    use rand::{SeedableRng, rngs::StdRng};
+    use ratatui::{Terminal, backend::TestBackend};
+
     use super::*;
+    use crate::{config::Config, problem::Kind};
+
+    /// The screen as rows of text.
+    fn draw(app: &App, width: u16, height: u16) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| render(app, frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..height)
+            .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    fn practising(kind: Kind) -> App {
+        let mut config = Config::default();
+        config.problems.kinds = vec![kind];
+        let now = Instant::now();
+        let wall = "2026-11-13T10:00:00Z".parse().unwrap();
+        App::new(config, StdRng::seed_from_u64(0), now, wall).start_now(now)
+    }
+
+    /// The row a screen first shows `needle` on.
+    fn row_of(screen: &[String], needle: &str) -> usize {
+        screen
+            .iter()
+            .position(|row| row.contains(needle))
+            .unwrap_or_else(|| panic!("no {needle:?} in {screen:#?}"))
+    }
+
+    #[test]
+    fn answer_box_stays_put_whatever_the_question() {
+        // One line, one line with a prompt, an overline, a stacked fraction.
+        let kinds = [Kind::Add, Kind::Prime, Kind::Sqrt, Kind::ExpectedValue];
+        for (width, height) in [(80, 24), (60, 12), (40, 10)] {
+            let rows: Vec<usize> = kinds
+                .iter()
+                .map(|&kind| row_of(&draw(&practising(kind), width, height), "╭"))
+                .collect();
+            assert!(
+                rows.iter().all(|&row| row == rows[0]),
+                "{width}×{height}: {rows:?}"
+            );
+        }
+    }
 
     #[test]
     fn clock_rounds_up() {
