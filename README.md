@@ -54,6 +54,8 @@ Choose what to practise, then press Enter.
 | Tab              |                             | skip         |                    |
 | PgUp PgDn, J K   |                             |              | scroll details     |
 | d                | open the dashboard          |              |                    |
+| t                | next colour theme           |              | next colour theme  |
+| ?                | key help                    |              | key help           |
 | Esc              | quit                        | back to menu | back to menu       |
 
 Any flag starts a session straight away, skipping the menu. The flags stay
@@ -154,12 +156,40 @@ anzan config path   # print where the file is read from
 ```
 
 The file covers the session (length, submit mode, practice mode), the
-ranges each kind of problem draws from, the custom mode, and how attempts
-are scored. Scoring is recomputed from the raw history every time, so
+ranges each kind of problem draws from, the custom mode, how attempts
+are scored, and the colour theme. Scoring is recomputed from the raw history every time, so
 changing it rescores the past as well. Unknown keys are errors, so a typo
 never goes unnoticed.
 
 Changes made in the menu last until Anzan exits and are never written back.
+
+## Themes
+
+By default Anzan asks the terminal whether its background is light or dark,
+then uses [Catppuccin](https://catppuccin.com) Latte or Mocha to match. If
+the terminal does not say, it falls back to `terminal`, which uses the
+terminal's own sixteen colours so that whatever theme it has shows through.
+
+```toml
+[theme]
+name = "auto"               # or "terminal", or any theme's name
+light = "catppuccin-latte"  # what auto picks on a light background
+dark = "catppuccin-mocha"   # and on a dark one
+```
+
+Bundled: the four Catppuccin flavours, Dracula, Rosé Pine and Rosé Pine
+Dawn, and Solarized dark and light. Their licenses are in
+[THEMES.md](THEMES.md).
+
+For more, drop any base16 or base24 scheme from
+[tinted-theming/schemes](https://github.com/tinted-theming/schemes) into a
+`themes` folder beside the config file; the file's name becomes the
+theme's name. `anzan themes` lists everything on offer and where that
+folder is. Press `t` in the menu or dashboard to try each in turn; like
+other menu changes, this lasts until Anzan exits.
+
+Palettes are drawn in true colour when `COLORTERM` says the terminal
+supports it, and in the nearest of 256 colours otherwise.
 
 ## History
 
