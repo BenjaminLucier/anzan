@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anzan::{app::App, generate::AddSub, ui};
+use anzan::{app::App, generate::Settings, ui};
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{self, Event},
@@ -12,7 +12,12 @@ use ratatui::{
 const SESSION: Duration = Duration::from_secs(120);
 
 fn main() -> io::Result<()> {
-    let app = App::new(AddSub::default(), SESSION, rand::make_rng(), Instant::now());
+    let app = App::new(
+        Settings::default(),
+        SESSION,
+        rand::make_rng(),
+        Instant::now(),
+    );
     ratatui::run(|terminal| run(terminal, app))
 }
 

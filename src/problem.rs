@@ -7,13 +7,19 @@ use std::fmt;
 pub enum Op {
     Add,
     Sub,
+    Mul,
+    Div,
 }
 
 impl Op {
+    pub const ALL: [Op; 4] = [Op::Add, Op::Sub, Op::Mul, Op::Div];
+
     pub fn symbol(self) -> char {
         match self {
             Op::Add => '+',
             Op::Sub => '−',
+            Op::Mul => '×',
+            Op::Div => '÷',
         }
     }
 }
@@ -30,10 +36,13 @@ pub struct Problem {
 }
 
 impl Problem {
+    /// The answer. Generators only produce divisions that come out exact.
     pub fn answer(&self) -> i64 {
         match self.op {
             Op::Add => self.lhs + self.rhs,
             Op::Sub => self.lhs - self.rhs,
+            Op::Mul => self.lhs * self.rhs,
+            Op::Div => self.lhs / self.rhs,
         }
     }
 }
@@ -48,20 +57,21 @@ impl fmt::Display for Problem {
 mod tests {
     use super::*;
 
+    fn p(op: Op, lhs: i64, rhs: i64) -> Problem {
+        Problem { op, lhs, rhs }
+    }
+
     #[test]
     fn answers() {
-        let p = |op, lhs, rhs| Problem { op, lhs, rhs };
         assert_eq!(p(Op::Add, 47, 38).answer(), 85);
         assert_eq!(p(Op::Sub, 85, 38).answer(), 47);
+        assert_eq!(p(Op::Mul, 7, 38).answer(), 266);
+        assert_eq!(p(Op::Div, 266, 7).answer(), 38);
     }
 
     #[test]
     fn display() {
-        let p = Problem {
-            op: Op::Sub,
-            lhs: 85,
-            rhs: 38,
-        };
-        assert_eq!(p.to_string(), "85 − 38");
+        assert_eq!(p(Op::Sub, 85, 38).to_string(), "85 − 38");
+        assert_eq!(p(Op::Div, 266, 7).to_string(), "266 ÷ 7");
     }
 }

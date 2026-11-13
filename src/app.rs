@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use rand::rngs::StdRng;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::{generate::AddSub, problem::Problem};
+use crate::{generate::Settings, problem::Problem};
 
 /// The longest answer the input accepts. Any answer we ask for fits easily.
 pub const MAX_INPUT: usize = 12;
@@ -21,7 +21,7 @@ pub enum Screen {
 }
 
 pub struct App {
-    settings: AddSub,
+    settings: Settings,
     rng: StdRng,
     duration: Duration,
     started: Instant,
@@ -35,7 +35,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(settings: AddSub, duration: Duration, mut rng: StdRng, now: Instant) -> Self {
+    pub fn new(settings: Settings, duration: Duration, mut rng: StdRng, now: Instant) -> Self {
         let problem = settings.generate(&mut rng);
         Self {
             settings,
@@ -140,7 +140,7 @@ mod tests {
     /// An app that started at the returned instant.
     fn new_app() -> (App, Instant) {
         let t0 = Instant::now();
-        let app = App::new(AddSub::default(), DURATION, StdRng::seed_from_u64(0), t0);
+        let app = App::new(Settings::default(), DURATION, StdRng::seed_from_u64(0), t0);
         (app, t0)
     }
 
