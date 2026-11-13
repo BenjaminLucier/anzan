@@ -144,7 +144,7 @@ right shows the details of whatever is selected:
 - **Summary**: totals and your daily streak, with the score trend over
   sessions that asked the same questions the same way: the same length,
   mode, submit mode, kinds and ranges for those kinds (scores are only
-  comparable then), practice per day over the past year, and response time by
+  comparable then), which the chart's title names, practice per day over the past year, and response time by
   percentile, over all time and the last week.
 - **Kinds**: accuracy and median time for each kind practised. Select one
   for its speed curve, and beneath it what each of its skills costs you in

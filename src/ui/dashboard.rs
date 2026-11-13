@@ -18,13 +18,17 @@ use ratatui::{
     },
 };
 
-use super::count;
+use std::time::Duration;
+
+use super::{clock, count};
 use crate::{
     app::{Dashboard, Side},
     history::History,
     stats::{
         features::Feature,
-        report::{Cost, DigitGrid, KindReport, Report, SessionReport, Speed, WeakSpot},
+        report::{
+            Cost, DigitGrid, Fingerprint, KindReport, Report, SessionReport, Speed, WeakSpot,
+        },
     },
     store::Attempt,
     theme::Theme,
@@ -266,6 +270,30 @@ fn overview(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
     speed_chart(&report.speed, true, t, frame, speed_area);
 }
 
+/// What the score trend is of: sessions like the one the menu is set
+/// up for, named by its settings. Scores are only comparable between
+/// those. The settings are dropped from the end if they do not fit in
+/// `width`, the kinds first.
+fn trend_title(settings: &Fingerprint, width: usize) -> String {
+    let kinds = settings.kinds();
+    let kinds = match kinds.len() {
+        0 => None,
+        1..=4 => Some(kinds.join(", ")),
+        n => Some(format!("{n} kinds")),
+    };
+    let mut parts = vec![
+        "Score per session".to_owned(),
+        clock(Duration::from_secs(settings.duration)),
+        settings.mode.label().to_owned(),
+        format!("{} submit", settings.submit.name()),
+    ];
+    parts.extend(kinds);
+    while parts.len() > 1 && parts.join(" · ").chars().count() > width {
+        parts.pop();
+    }
+    parts.join(" · ")
+}
+
 fn render_trend(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
     let [title, spark, note] = Layout::vertical([
         Constraint::Length(1),
@@ -273,10 +301,8 @@ fn render_trend(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
         Constraint::Length(1),
     ])
     .areas(area);
-    frame.render_widget(
-        Line::from("Score with the current settings").style(t.heading()),
-        title,
-    );
+    let heading = trend_title(&report.settings, usize::from(title.width));
+    frame.render_widget(Line::from(heading).style(t.heading()), title);
     let scores = &report.trend;
     let (lowest, best) = (
         scores.iter().min().copied().unwrap_or(0),
@@ -788,6 +814,26 @@ mod tests {
     fn medians_need_a_correct_answer() {
         assert_eq!(median_secs(2140.0, 3), "2.1s");
         assert_eq!(median_secs(0.0, 0), "–");
+    }
+
+    #[test]
+    fn trend_title_names_the_settings_that_fit() {
+        use crate::{config::Submit, drill::Mode};
+
+        let settings = |kinds: &[&str]| {
+            let problems = serde_json::json!({ "kinds": kinds });
+            Fingerprint::new(120, Submit::Auto, Mode::Fukushu, &problems)
+        };
+        let core = settings(&["add", "sub", "mul", "div"]);
+        assert_eq!(
+            trend_title(&core, 80),
+            "Score per session · 2:00 · Fukushū · auto submit · add, div, mul, sub"
+        );
+        // Too many kinds to list are counted, and what does not fit goes.
+        let many = settings(&["add", "sub", "mul", "div", "square"]);
+        assert!(trend_title(&many, 80).ends_with("auto submit · 5 kinds"));
+        assert_eq!(trend_title(&core, 40), "Score per session · 2:00 · Fukushū");
+        assert_eq!(trend_title(&core, 5), "Score per session");
     }
 
     #[test]

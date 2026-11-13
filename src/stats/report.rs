@@ -43,7 +43,9 @@ pub struct Report {
     pub kinds: Vec<KindReport>,
     /// Newest first.
     pub sessions: Vec<SessionReport>,
-    /// Scores of finished sessions with the current settings.
+    /// The settings the next session would have, and the scores of
+    /// finished sessions that had the same.
+    pub settings: Fingerprint,
     pub trend: Vec<u32>,
     /// The average struggle, which every skill is measured against.
     pub overall: f64,
@@ -108,6 +110,7 @@ impl Report {
             damaged: history.damaged,
             kinds,
             sessions: sessions(history),
+            settings: fingerprint.clone(),
             trend: trend(&history.sessions, fingerprint),
             overall: model.overall(),
             speed: Speed::of(attempts, since),
@@ -292,6 +295,18 @@ impl Fingerprint {
             mode,
             problems: asked(problems).to_string(),
         }
+    }
+
+    /// The kinds asked, by name, in a fixed order. Empty if the settings
+    /// are in a shape this does not know.
+    pub fn kinds(&self) -> Vec<String> {
+        let problems: serde_json::Value = serde_json::from_str(&self.problems).unwrap_or_default();
+        let kinds = problems.get("kinds").and_then(|kinds| kinds.as_array());
+        kinds
+            .into_iter()
+            .flatten()
+            .filter_map(|kind| kind.as_str().map(str::to_owned))
+            .collect()
     }
 
     pub fn of(session: &SessionRecord) -> Self {
@@ -670,6 +685,7 @@ mod tests {
             Fingerprint::new(120, Submit::Auto, Mode::Jiyu, &problems)
         };
         let base = print(|_| {});
+        assert_eq!(base.kinds(), ["add", "mul", "sub"]);
         // The same kinds in another order, as a config file may list them.
         assert_eq!(
             print(|s| s.kinds = vec![Kind::Mul, Kind::Add, Kind::Sub]),
@@ -686,6 +702,9 @@ mod tests {
         let same = Fingerprint::new(120, Submit::Auto, Mode::Jiyu, &odd.clone());
         assert_eq!(Fingerprint::new(120, Submit::Auto, Mode::Jiyu, &odd), same);
         assert_ne!(same, base);
+        assert_eq!(same.kinds(), ["add", "juggling"]);
+        let shapeless = Fingerprint::new(120, Submit::Auto, Mode::Jiyu, &serde_json::Value::Null);
+        assert!(shapeless.kinds().is_empty());
     }
 
     #[test]
