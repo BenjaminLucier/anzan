@@ -1,4 +1,4 @@
-//! Writes four months of made-up practice history for one keen user, for
+//! Writes eight months of made-up practice history for one keen user, for
 //! the README's screenshots and demo (see `demo/README.md`).
 //!
 //! ```sh
@@ -27,7 +27,7 @@ use rand::{RngExt, SeedableRng, rngs::StdRng, seq::IndexedRandom};
 
 /// "anzan" in ASCII.
 const SEED: u64 = 0x0061_6e7a_616e;
-const DAYS: i64 = 120;
+const DAYS: i64 = 240;
 const SESSION_SECS: u64 = 120;
 /// Between an answer and the next question appearing.
 const GAP_MS: u64 = 250;
@@ -57,7 +57,7 @@ fn main() -> Result<()> {
         // 0 at the start, 1 by the end: how far the user has come along.
         let progress = (DAYS - days_ago) as f64 / DAYS as f64;
         let weekend = matches!(date.weekday(), Weekday::Saturday | Weekday::Sunday);
-        let holiday = (52..=59).contains(&days_ago);
+        let holiday = (52..=59).contains(&days_ago) || (150..=161).contains(&days_ago);
         let streak = days_ago <= 14;
         let practises = streak || (!holiday && rng.random_bool(if weekend { 0.9 } else { 0.72 }));
         if !practises {
