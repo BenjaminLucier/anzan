@@ -138,9 +138,9 @@ fn render_confirm_delete(app: &App, t: &Theme, frame: &mut Frame) {
     let history = app.history();
     let mut lines = vec![
         Line::from(format!(
-            "This deletes all {} attempts and {} sessions,",
-            history.attempts.len(),
-            history.sessions.len()
+            "This deletes all {} and {},",
+            count(history.attempts.len(), "attempt"),
+            count(history.sessions.len(), "session")
         )),
         Line::from("and they cannot be brought back."),
         Line::default(),
@@ -307,6 +307,11 @@ fn render_summary(summary: &Summary, t: &Theme, frame: &mut Frame, area: Rect) {
     .centered();
     let area = area.centered_vertically(Constraint::Length(text.height() as u16));
     frame.render_widget(text, area);
+}
+
+/// `1 session`, `2 sessions`.
+fn count(n: usize, noun: &str) -> String {
+    format!("{n} {noun}{}", if n == 1 { "" } else { "s" })
 }
 
 /// Formats time left as `m:ss`, rounding up so that the clock reads `0:00`
@@ -554,6 +559,13 @@ mod tests {
                 "{width}×{height}: {rows:?}"
             );
         }
+    }
+
+    #[test]
+    fn counts_agree_in_number() {
+        assert_eq!(count(0, "session"), "0 sessions");
+        assert_eq!(count(1, "session"), "1 session");
+        assert_eq!(count(2, "attempt"), "2 attempts");
     }
 
     #[test]

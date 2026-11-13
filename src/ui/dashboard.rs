@@ -18,6 +18,7 @@ use ratatui::{
     },
 };
 
+use super::count;
 use crate::{
     app::{Dashboard, Side},
     history::History,
@@ -114,6 +115,16 @@ fn secs(ms: f64) -> String {
     format!("{:.1}s", ms / 1000.0)
 }
 
+/// A median time, or a dash when nothing was answered correctly, since
+/// only correct answers are timed.
+fn median_secs(ms: f64, correct: u32) -> String {
+    if correct == 0 {
+        "–".to_owned()
+    } else {
+        secs(ms)
+    }
+}
+
 /// `1.4×`.
 fn times(factor: f64) -> String {
     format!("{factor:.1}×")
@@ -127,16 +138,19 @@ fn local(report: &Report, ts: Timestamp) -> Zoned {
 fn render_side(dash: &Dashboard, t: &Theme, frame: &mut Frame, area: Rect) {
     let report = &dash.report;
     let mut lines = vec![
-        Line::from(format!("{} attempts", report.attempts)),
-        Line::from(format!("{} sessions", report.sessions.len())),
+        Line::from(count(report.attempts, "attempt")),
+        Line::from(count(report.sessions.len(), "session")),
         Line::from(format!(
-            "{} day streak · {} days in all",
+            "{} day streak · {} in all",
             report.streak(),
-            report.activity.len()
+            count(report.activity.len(), "day")
         )),
     ];
     if report.damaged > 0 {
-        lines.push(Line::from(format!("{} damaged lines skipped", report.damaged)).style(t.warn()));
+        lines.push(
+            Line::from(format!("{} skipped", count(report.damaged, "damaged line")))
+                .style(t.warn()),
+        );
     }
     // Every kind if there is room, but never so many that the lists
     // below are squeezed to nothing: the list scrolls instead.
@@ -166,7 +180,7 @@ fn render_side(dash: &Dashboard, t: &Theme, frame: &mut Frame, area: Rect) {
         let numbers = format!(
             "{:.0}% {:>5}",
             stats.accuracy() * 100.0,
-            secs(stats.median_ms)
+            median_secs(stats.median_ms, stats.correct)
         );
         spread(stats.kind.label(), &numbers, inner)
     });
@@ -274,8 +288,8 @@ fn render_trend(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
         Some(last) => {
             let mean = scores.iter().sum::<u32>() as f64 / scores.len() as f64;
             format!(
-                "{} sessions · last {last} · best {best} · mean {mean:.0}",
-                scores.len()
+                "{} · last {last} · best {best} · mean {mean:.0}",
+                count(scores.len(), "session")
             )
         }
     };
@@ -445,8 +459,8 @@ fn kind_details(report: &Report, kind: &KindReport, t: &Theme, frame: &mut Frame
         "{} seen · {:.0}% right · median {} · p90 {}",
         stats.attempts,
         stats.accuracy() * 100.0,
-        secs(stats.median_ms),
-        secs(stats.p90_ms)
+        median_secs(stats.median_ms, stats.correct),
+        median_secs(stats.p90_ms, stats.correct)
     );
     if let Some(recent) = stats.recent_median_ms {
         summary.push_str(&format!(" · last 7 days {}", secs(recent)));
@@ -650,7 +664,7 @@ fn weak_details(
         "seen {} · {:.0}% right · median {} · {} your average effort",
         weak.attempts.len(),
         weak.accuracy() * 100.0,
-        secs(weak.median_ms),
+        median_secs(weak.median_ms, weak.correct),
         times(weak.skill.factor(report.overall)),
     );
     let about = match weak.feature {
@@ -765,6 +779,12 @@ mod tests {
     #[test]
     fn heat_levels_are_symmetric_about_the_average() {
         assert_eq!([-1.0, -0.2, 0.0, 0.2, 2.0].map(level), [0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn medians_need_a_correct_answer() {
+        assert_eq!(median_secs(2140.0, 3), "2.1s");
+        assert_eq!(median_secs(0.0, 0), "–");
     }
 
     #[test]
