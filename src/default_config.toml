@@ -1,0 +1,27 @@
+# Anzan configuration.
+#
+# Every setting is optional: delete any you do not want to change, and the
+# built-in default applies. Ranges are inclusive, written as [lowest, highest].
+# Command-line flags such as `anzan --duration 60` override this file for
+# one run without changing it.
+
+[session]
+# Length of a session, in seconds.
+duration = 120
+
+[problems]
+# Operations to ask, chosen at random with equal odds.
+# Any of: "add", "sub", "mul", "div".
+ops = ["add", "sub", "mul", "div"]
+
+[problems.add_sub]
+# Addition asks lhs + rhs. Subtraction asks the same sum backwards,
+# (lhs + rhs) − rhs, so its answer is always in lhs and never negative.
+lhs = [2, 100]
+rhs = [2, 100]
+
+[problems.mul_div]
+# Multiplication asks lhs × rhs. Division asks the same product backwards,
+# (lhs × rhs) ÷ lhs, so it always divides exactly. lhs must not include 0.
+lhs = [2, 12]
+rhs = [2, 100]

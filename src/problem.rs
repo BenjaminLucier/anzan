@@ -1,6 +1,6 @@
 //! Problems: what is asked, and its answer.
 
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +23,22 @@ impl Op {
             Op::Sub => '−',
             Op::Mul => '×',
             Op::Div => '÷',
+        }
+    }
+}
+
+impl FromStr for Op {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "add" => Ok(Op::Add),
+            "sub" => Ok(Op::Sub),
+            "mul" => Ok(Op::Mul),
+            "div" => Ok(Op::Div),
+            _ => Err(format!(
+                "unknown operation `{s}`: expected add, sub, mul or div"
+            )),
         }
     }
 }
@@ -70,6 +86,14 @@ mod tests {
         assert_eq!(p(Op::Sub, 85, 38).answer(), 47);
         assert_eq!(p(Op::Mul, 7, 38).answer(), 266);
         assert_eq!(p(Op::Div, 266, 7).answer(), 38);
+    }
+
+    #[test]
+    fn op_names_match_config() {
+        for op in Op::ALL {
+            let name = toml::Value::try_from(op).unwrap();
+            assert_eq!(name.as_str().unwrap().parse(), Ok(op));
+        }
     }
 
     #[test]

@@ -41,6 +41,9 @@ impl Session {
 }
 
 impl Config {
+    /// A commented config file holding the defaults, for `anzan config init`.
+    pub const TEMPLATE: &str = include_str!("default_config.toml");
+
     /// Reads the config at `path`, or returns the defaults if there is no
     /// file there.
     pub fn load(path: &Path) -> Result<Self> {
@@ -130,6 +133,11 @@ mod tests {
     fn missing_file_gives_defaults() {
         let config = Config::load(Path::new("/nonexistent/anzan/config.toml")).unwrap();
         assert_eq!(config, Config::default());
+    }
+
+    #[test]
+    fn template_holds_the_defaults() {
+        assert_eq!(Config::parse(Config::TEMPLATE).unwrap(), Config::default());
     }
 
     #[test]

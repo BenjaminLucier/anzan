@@ -1,14 +1,33 @@
-use std::time::Instant;
+use std::{fs, path::Path, time::Instant};
 
-use anyhow::Result;
-use anzan::{app::App, config::Config, ui};
+use anyhow::{Context, Result, bail};
+use anzan::{
+    app::App,
+    cli::{Cli, Command, ConfigCommand},
+    config::{self, Config},
+    ui,
+};
+use clap::Parser;
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{self, Event},
 };
 
 fn main() -> Result<()> {
-    let config = Config::load(&anzan::config::config_path()?)?;
+    let cli = Cli::parse();
+    let config_path = config::config_path()?;
+    match cli.command {
+        Some(Command::Config(command)) => run_config(command, &config_path),
+        None => {
+            let mut config = Config::load(&config_path)?;
+            cli.session.apply(&mut config);
+            config.validate().context("in command-line flags")?;
+            practice(config)
+        }
+    }
+}
+
+fn practice(config: Config) -> Result<()> {
     let app = App::new(
         config.problems,
         config.session.duration(),
@@ -31,6 +50,28 @@ fn run(terminal: &mut DefaultTerminal, mut app: App) -> std::io::Result<()> {
         if ready && let Event::Key(key) = event::read()? {
             app.handle_key(key, Instant::now());
         }
+    }
+    Ok(())
+}
+
+fn run_config(command: ConfigCommand, path: &Path) -> Result<()> {
+    match command {
+        ConfigCommand::Path => println!("{}", path.display()),
+        ConfigCommand::Init { force } => {
+            if path.exists() && !force {
+                bail!(
+                    "{} already exists; pass --force to overwrite it",
+                    path.display()
+                );
+            }
+            if let Some(dir) = path.parent() {
+                fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+            }
+            fs::write(path, Config::TEMPLATE)
+                .with_context(|| format!("writing {}", path.display()))?;
+            println!("wrote {}", path.display());
+        }
+        ConfigCommand::Show => print!("{}", toml::to_string(&Config::load(path)?)?),
     }
     Ok(())
 }

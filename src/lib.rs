@@ -1,6 +1,7 @@
 //! Anzan (暗算): a terminal trainer for mental math.
 
 pub mod app;
+pub mod cli;
 pub mod config;
 pub mod generate;
 pub mod problem;
