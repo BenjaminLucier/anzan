@@ -36,9 +36,11 @@
         Write-Host "Downloading $base/$archive"
         $zip = Join-Path $temp $archive
         Invoke-WebRequest -UseBasicParsing -Uri "$base/$archive" -OutFile $zip
-        Invoke-WebRequest -UseBasicParsing -Uri "$base/$archive.sha256" -OutFile "$zip.sha256"
+        # Holds "<hash> *anzan-<target>.zip".
+        $sums = Join-Path $temp "anzan-$target.sha256"
+        Invoke-WebRequest -UseBasicParsing -Uri "$base/anzan-$target.sha256" -OutFile $sums
 
-        $expected = ((Get-Content "$zip.sha256" -Raw).Trim() -split '\s+')[0]
+        $expected = ((Get-Content $sums -Raw).Trim() -split '\s+')[0]
         $actual = (Get-FileHash -Algorithm SHA256 $zip).Hash
         if ($actual -ne $expected) {
             throw "Checksum mismatch for ${archive}: expected $expected, got $actual"
