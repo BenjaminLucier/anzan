@@ -6,6 +6,7 @@
 mod bitmap;
 mod dashboard;
 mod font;
+mod grid;
 mod kanji;
 mod math;
 
@@ -19,7 +20,10 @@ use ratatui::{
     widgets::Block,
 };
 
-use self::bitmap::{BigText, Scale};
+use self::{
+    bitmap::{BigText, Scale},
+    grid::Drawing,
+};
 use crate::{
     app::{App, MAX_INPUT, Menu, Row, Screen, Session, Summary},
     config::{Config, Submit},
@@ -186,8 +190,8 @@ fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
     frame.render_widget(Line::from(hint).dim().centered(), hints);
 
     let text = session.problem.to_string();
-    let bitmap = math::layout(&session.problem.expr()).map(|laid| laid.bitmap);
-    let question = BigText::bitmap(bitmap, &text);
+    let grid = math::layout(&session.problem.expr()).grid;
+    let question = Drawing::new(Some(grid), &text);
     let room = area.inner(Margin::new(2, 1));
     let room = Size::new(
         room.width,

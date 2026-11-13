@@ -1,4 +1,5 @@
-//! Monochrome bitmaps, and a widget that draws one as large as fits.
+//! Monochrome bitmaps, such as the kanji, and a widget that draws one
+//! as large as fits.
 //!
 //! A terminal has no font sizes, so big text is drawn out of block
 //! characters. Terminal cells are about twice as tall as they are wide,
@@ -17,8 +18,6 @@ use ratatui::{
     widgets::Widget,
 };
 
-use super::font;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bitmap {
     width: usize,
@@ -33,19 +32,6 @@ impl Bitmap {
             height,
             pixels: vec![false; width * height],
         }
-    }
-
-    /// Draws `text` in the bitmap font, or returns `None` if the font lacks
-    /// one of its characters.
-    pub fn text(text: &str) -> Option<Self> {
-        let glyphs: Vec<_> = text.chars().map(font::glyph).collect::<Option<_>>()?;
-        Some(Self::from_glyphs(glyphs.iter().map(|g| &g[..]), font::GAP))
-    }
-
-    /// Draws `text` in the small exponent font.
-    pub fn small_text(text: &str) -> Option<Self> {
-        let glyphs: Vec<_> = text.chars().map(font::small_glyph).collect::<Option<_>>()?;
-        Some(Self::from_glyphs(glyphs.iter().map(|g| &g[..]), font::GAP))
     }
 
     /// Lays glyphs out left to right, `gap` pixels apart, aligned at the
@@ -144,11 +130,6 @@ pub struct BigText<'a> {
 }
 
 impl<'a> BigText<'a> {
-    /// `text` in the bitmap font.
-    pub fn new(text: &'a str) -> Self {
-        Self::bitmap(Bitmap::text(text), text)
-    }
-
     /// Any bitmap, with `text` to show if it does not fit.
     pub fn bitmap(bitmap: Option<Bitmap>, text: &'a str) -> Self {
         Self {
@@ -225,10 +206,27 @@ fn half(top: bool, bottom: bool) -> Option<&'static str> {
 mod tests {
     use super::*;
 
+    #[rustfmt::skip]
+    const ONE: [&str; 7] = [
+        "..#..",
+        ".##..",
+        "..#..",
+        "..#..",
+        "..#..",
+        "..#..",
+        ".###.",
+    ];
+
+    /// Ones in a row, as a bitmap with `text` to fall back on.
+    fn ones(text: &str) -> BigText<'_> {
+        let glyphs = text.chars().map(|_| &ONE[..]);
+        BigText::bitmap(Some(Bitmap::from_glyphs(glyphs, 1)), text)
+    }
+
     fn render(text: &str, width: u16, height: u16) -> Vec<String> {
         let area = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(area);
-        (&BigText::new(text)).render(area, &mut buf);
+        (&ones(text)).render(area, &mut buf);
         (0..height)
             .map(|y| (0..width).map(|x| buf[(x, y)].symbol()).collect())
             .collect()
@@ -236,18 +234,13 @@ mod tests {
 
     #[test]
     fn text_width_includes_gaps() {
-        let bitmap = Bitmap::text("12").unwrap();
+        let bitmap = Bitmap::from_glyphs([&ONE[..], &ONE[..]], 1);
         assert_eq!((bitmap.width(), bitmap.height()), (11, 7));
     }
 
     #[test]
-    fn unknown_character_means_no_bitmap() {
-        assert!(Bitmap::text("1a").is_none());
-    }
-
-    #[test]
     fn picks_the_largest_scale_that_fits() {
-        let big = BigText::new("1");
+        let big = ones("1");
         let fit = |w, h| big.fit(Size::new(w, h)).map(|(scale, _)| scale);
         assert_eq!(fit(10, 7), Some(Scale::Large));
         assert_eq!(fit(9, 7), Some(Scale::Medium));

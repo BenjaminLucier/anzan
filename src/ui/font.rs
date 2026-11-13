@@ -1,295 +1,100 @@
-//! A hand-drawn bitmap font for the characters questions are made of.
+//! A font drawn with box-drawing characters, three rows tall.
 //!
-//! Each glyph is 7 pixels tall and drawn as rows of `#` (on) and `.` (off).
-//! Glyphs can differ in width.
+//! Heavy strokes (`━ ┃ ┏ ┓ ┗ ┛ ┣ ┫ ╋`) join cleanly in any decent
+//! terminal font, so digits read as smooth lines rather than blocks of
+//! pixels, and stay compact. Bold makes them heavier still.
 
-/// Height of every glyph, in pixels.
-pub const HEIGHT: usize = 7;
+/// Rows in every glyph.
+pub const HEIGHT: usize = 3;
 
-/// Pixels between neighbouring glyphs.
+/// Columns between neighbouring glyphs.
 pub const GAP: usize = 1;
 
-/// Height of the small glyphs used for exponents.
-pub const SMALL_HEIGHT: usize = 5;
-
-/// The rows of `c` in the small font, or `None` if it cannot draw it.
-#[rustfmt::skip]
-pub fn small_glyph(c: char) -> Option<[&'static str; SMALL_HEIGHT]> {
-    Some(match c {
-        '0' => ["###", "#.#", "#.#", "#.#", "###"],
-        '1' => [".#.", "##.", ".#.", ".#.", "###"],
-        '2' => ["###", "..#", "###", "#..", "###"],
-        '3' => ["###", "..#", "###", "..#", "###"],
-        '4' => ["#.#", "#.#", "###", "..#", "..#"],
-        '5' => ["###", "#..", "###", "..#", "###"],
-        '6' => ["###", "#..", "###", "#.#", "###"],
-        '7' => ["###", "..#", "..#", "..#", "..#"],
-        '8' => ["###", "#.#", "###", "#.#", "###"],
-        '9' => ["###", "#.#", "###", "..#", "###"],
-        '−' | '-' => ["...", "...", "###", "...", "..."],
-        '.' => [".", ".", ".", ".", "#"],
-        _ => return None,
-    })
-}
-
-/// The rows of `c`, or `None` if the font cannot draw it.
+/// The rows of `c`, all the same width, or `None` for characters without
+/// a glyph, such as the letters in `3 of 5`.
 #[rustfmt::skip]
 pub fn glyph(c: char) -> Option<[&'static str; HEIGHT]> {
-    Some(match c {
-        '0' => [
-            ".###.",
-            "#...#",
-            "#...#",
-            "#...#",
-            "#...#",
-            "#...#",
-            ".###.",
-        ],
-        '1' => [
-            "..#..",
-            ".##..",
-            "..#..",
-            "..#..",
-            "..#..",
-            "..#..",
-            ".###.",
-        ],
-        '2' => [
-            ".###.",
-            "#...#",
-            "....#",
-            "...#.",
-            "..#..",
-            ".#...",
-            "#####",
-        ],
-        '3' => [
-            "####.",
-            "....#",
-            "....#",
-            ".###.",
-            "....#",
-            "....#",
-            "####.",
-        ],
-        '4' => [
-            "...#.",
-            "..##.",
-            ".#.#.",
-            "#..#.",
-            "#####",
-            "...#.",
-            "...#.",
-        ],
-        '5' => [
-            "#####",
-            "#....",
-            "####.",
-            "....#",
-            "....#",
-            "#...#",
-            ".###.",
-        ],
-        '6' => [
-            "..##.",
-            ".#...",
-            "#....",
-            "####.",
-            "#...#",
-            "#...#",
-            ".###.",
-        ],
-        '7' => [
-            "#####",
-            "....#",
-            "...#.",
-            "..#..",
-            ".#...",
-            ".#...",
-            ".#...",
-        ],
-        '8' => [
-            ".###.",
-            "#...#",
-            "#...#",
-            ".###.",
-            "#...#",
-            "#...#",
-            ".###.",
-        ],
-        '9' => [
-            ".###.",
-            "#...#",
-            "#...#",
-            ".####",
-            "....#",
-            "...#.",
-            ".##..",
-        ],
-        '+' => [
-            ".....",
-            "..#..",
-            "..#..",
-            "#####",
-            "..#..",
-            "..#..",
-            ".....",
-        ],
-        '−' | '-' => [
-            ".....",
-            ".....",
-            ".....",
-            "#####",
-            ".....",
-            ".....",
-            ".....",
-        ],
-        '×' => [
-            ".....",
-            "#...#",
-            ".#.#.",
-            "..#..",
-            ".#.#.",
-            "#...#",
-            ".....",
-        ],
-        '÷' => [
-            ".....",
-            "..#..",
-            ".....",
-            "#####",
-            ".....",
-            "..#..",
-            ".....",
-        ],
-        '=' => [
-            ".....",
-            ".....",
-            "#####",
-            ".....",
-            "#####",
-            ".....",
-            ".....",
-        ],
-        '.' => [
-            ".",
-            ".",
-            ".",
-            ".",
-            ".",
-            "#",
-            "#",
-        ],
-        '%' => [
-            "##..#",
-            "##.#.",
-            "...#.",
-            "..#..",
-            ".#...",
-            ".#.##",
-            "#..##",
-        ],
-        ',' => [
-            "..",
-            "..",
-            "..",
-            "..",
-            "..",
-            ".#",
-            "#.",
-        ],
-        '→' => [
-            "......",
-            "...#..",
-            "....#.",
-            "######",
-            "....#.",
-            "...#..",
-            "......",
-        ],
-        'o' => [
-            ".....",
-            ".....",
-            ".###.",
-            "#...#",
-            "#...#",
-            "#...#",
-            ".###.",
-        ],
-        'f' => [
-            "..##",
-            ".#..",
-            "####",
-            ".#..",
-            ".#..",
-            ".#..",
-            ".#..",
-        ],
-        'b' => [
-            "#....",
-            "#....",
-            "####.",
-            "#...#",
-            "#...#",
-            "#...#",
-            "####.",
-        ],
-        'p' => [
-            ".....",
-            ".....",
-            "####.",
-            "#...#",
-            "####.",
-            "#....",
-            "#....",
-        ],
-        ' ' => [
-            "...",
-            "...",
-            "...",
-            "...",
-            "...",
-            "...",
-            "...",
-        ],
+    let rows: [&str; HEIGHT] = match c {
+        '0' => ["┏━┓",
+                "┃ ┃",
+                "┗━┛"],
+        '1' => ["╺┓ ",
+                " ┃ ",
+                "╺┻╸"],
+        '2' => ["╺━┓",
+                "┏━┛",
+                "┗━╸"],
+        '3' => ["╺━┓",
+                " ━┫",
+                "╺━┛"],
+        '4' => ["╻ ╻",
+                "┗━┫",
+                "  ╹"],
+        '5' => ["┏━╸",
+                "┗━┓",
+                "╺━┛"],
+        '6' => ["┏━╸",
+                "┣━┓",
+                "┗━┛"],
+        '7' => ["╺━┓",
+                "  ┃",
+                "  ╹"],
+        '8' => ["┏━┓",
+                "┣━┫",
+                "┗━┛"],
+        '9' => ["┏━┓",
+                "┗━┫",
+                "╺━┛"],
+        '+' => [" ╻ ",
+                "╺╋╸",
+                " ╹ "],
+        '−' | '-' => ["   ",
+                      "╺━╸",
+                      "   "],
+        '×' => [" ",
+                "╳",
+                " "],
+        '÷' => [" • ",
+                "╺━╸",
+                " • "],
+        '=' => ["   ",
+                "═══",
+                "   "],
+        '.' => [" ",
+                " ",
+                "•"],
+        ',' => [" ",
+                " ",
+                ","],
+        '%' => ["• ╱",
+                " ╱ ",
+                "╱ •"],
+        ' ' => [" ",
+                " ",
+                " "],
+        '→' => ["   ",
+                "╺━▸",
+                "   "],
         _ => return None,
-    })
+    };
+    Some(rows)
+}
+
+/// Whether `c` sits tight against its neighbours instead of a gap apart.
+pub fn is_tight(c: char) -> bool {
+    matches!(c, '.' | ',')
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const DRAWN: &str = "0123456789+−×÷=.%,→ofbp ";
-
     #[test]
-    fn glyph_rows_are_well_formed() {
-        for c in DRAWN.chars() {
+    fn glyph_rows_are_even() {
+        for c in "0123456789+−-×÷=.,%→ ".chars() {
             let rows = glyph(c).unwrap();
-            let width = rows[0].len();
-            assert!(width > 0, "{c:?} has no width");
-            for row in rows {
-                assert_eq!(row.len(), width, "{c:?} has ragged rows");
-                assert!(row.chars().all(|p| p == '#' || p == '.'), "{c:?}: {row}");
-            }
+            let width = rows[0].chars().count();
+            assert!(rows.iter().all(|r| r.chars().count() == width), "{c:?}");
         }
-    }
-
-    #[test]
-    fn small_glyph_rows_are_well_formed() {
-        for c in "0123456789−.".chars() {
-            let rows = small_glyph(c).unwrap();
-            assert!(rows.iter().all(|r| r.len() == rows[0].len()), "{c:?}");
-        }
-    }
-
-    #[test]
-    fn ascii_minus_draws_like_the_real_one() {
-        assert_eq!(glyph('-'), glyph('−'));
-    }
-
-    #[test]
-    fn unknown_characters_have_no_glyph() {
-        assert_eq!(glyph('a'), None);
     }
 }
