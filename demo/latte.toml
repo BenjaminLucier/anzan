@@ -1,0 +1,5 @@
+# The config the README's screenshots are recorded with (see record.sh).
+[theme]
+name = "catppuccin-latte"
+# Large in any terminal, not just Ghostty and Kitty: VHS's is neither.
+question = "large"
