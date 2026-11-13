@@ -1,6 +1,8 @@
 //! Command-line arguments.
 
-use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::{config::Config, problem::Op};
 
@@ -20,6 +22,23 @@ pub enum Command {
     /// Inspect or create the config file.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Export practice history as CSV.
+    Export {
+        /// Which history to export.
+        #[arg(value_enum, default_value_t = Table::Attempts)]
+        table: Table,
+        /// Write to this file instead of standard output.
+        #[arg(short, long, value_name = "FILE")]
+        output: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum Table {
+    /// One row per question answered.
+    Attempts,
+    /// One row per session.
+    Sessions,
 }
 
 #[derive(Debug, Subcommand)]
@@ -89,6 +108,18 @@ mod tests {
     fn rejects_unknown_ops() {
         let err = parse(&["--ops", "add,pow"]).unwrap_err();
         assert!(err.to_string().contains("pow"), "{err}");
+    }
+
+    #[test]
+    fn export_defaults_to_attempts_on_stdout() {
+        let cli = parse(&["export"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Export {
+                table: Table::Attempts,
+                output: None
+            })
+        ));
     }
 
     #[test]

@@ -17,6 +17,16 @@ pub enum Op {
 impl Op {
     pub const ALL: [Op; 4] = [Op::Add, Op::Sub, Op::Mul, Op::Div];
 
+    /// The name used in config files, history and on the command line.
+    pub fn name(self) -> &'static str {
+        match self {
+            Op::Add => "add",
+            Op::Sub => "sub",
+            Op::Mul => "mul",
+            Op::Div => "div",
+        }
+    }
+
     pub fn symbol(self) -> char {
         match self {
             Op::Add => '+',
@@ -96,7 +106,8 @@ mod tests {
     fn op_names_match_config() {
         for op in Op::ALL {
             let name = toml::Value::try_from(op).unwrap();
-            assert_eq!(name.as_str().unwrap().parse(), Ok(op));
+            assert_eq!(name.as_str(), Some(op.name()));
+            assert_eq!(op.name().parse(), Ok(op));
         }
     }
 

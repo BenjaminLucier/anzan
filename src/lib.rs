@@ -3,6 +3,7 @@
 pub mod app;
 pub mod cli;
 pub mod config;
+pub mod export;
 pub mod generate;
 pub mod problem;
 pub mod store;

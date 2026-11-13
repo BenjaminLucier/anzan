@@ -1,10 +1,11 @@
-use std::{fs, path::Path, time::Instant};
+use std::{fs, io, path::Path, time::Instant};
 
 use anyhow::{Context, Result, bail};
 use anzan::{
     app::{App, Record},
-    cli::{Cli, Command, ConfigCommand},
+    cli::{Cli, Command, ConfigCommand, Table},
     config::{self, Config},
+    export,
     store::{self, Store},
     ui,
 };
@@ -20,6 +21,7 @@ fn main() -> Result<()> {
     let config_path = config::config_path()?;
     match cli.command {
         Some(Command::Config(command)) => run_config(command, &config_path),
+        Some(Command::Export { table, output }) => run_export(table, output.as_deref()),
         None => {
             let mut config = Config::load(&config_path)?;
             cli.session.apply(&mut config);
@@ -87,6 +89,32 @@ fn run_config(command: ConfigCommand, path: &Path) -> Result<()> {
             println!("wrote {}", path.display());
         }
         ConfigCommand::Show => print!("{}", toml::to_string(&Config::load(path)?)?),
+    }
+    Ok(())
+}
+
+fn run_export(table: Table, output: Option<&Path>) -> Result<()> {
+    let store = Store::new(store::data_dir()?);
+    let out: Box<dyn io::Write> = match output {
+        Some(path) => Box::new(
+            fs::File::create(path).with_context(|| format!("creating {}", path.display()))?,
+        ),
+        None => Box::new(io::stdout().lock()),
+    };
+    let skipped = match table {
+        Table::Attempts => {
+            let loaded = store.attempts()?;
+            export::attempts(&loaded.rows, out)?;
+            loaded.skipped
+        }
+        Table::Sessions => {
+            let loaded = store.sessions()?;
+            export::sessions(&loaded.rows, out)?;
+            loaded.skipped
+        }
+    };
+    if skipped > 0 {
+        eprintln!("skipped {skipped} damaged lines");
     }
     Ok(())
 }
