@@ -3,6 +3,7 @@
 mod arithmetic;
 mod fractions;
 mod number_theory;
+mod percent;
 mod powers;
 
 use std::fmt;
@@ -14,6 +15,7 @@ pub use self::{
     arithmetic::{AddSub, LongMul, MulDiv},
     fractions::Fractions,
     number_theory::NumberTheory,
+    percent::Percent,
     powers::Powers,
 };
 
@@ -101,6 +103,7 @@ pub struct Settings {
     pub powers: Powers,
     pub number_theory: NumberTheory,
     pub fractions: Fractions,
+    pub percent: Percent,
 }
 
 impl Default for Settings {
@@ -113,6 +116,7 @@ impl Default for Settings {
             powers: Powers::default(),
             number_theory: NumberTheory::default(),
             fractions: Fractions::default(),
+            percent: Percent::default(),
         }
     }
 }
@@ -128,7 +132,8 @@ impl Settings {
         }
         self.powers.validate()?;
         self.number_theory.validate()?;
-        self.fractions.validate()
+        self.fractions.validate()?;
+        self.percent.validate()
     }
 
     /// # Panics
@@ -154,6 +159,9 @@ impl Settings {
             Kind::Prime => self.number_theory.is_prime(rng),
             Kind::Factorize => self.number_theory.factorize(rng),
             Kind::Convert => self.fractions.convert(rng),
+            Kind::PercentOf => self.percent.of(rng),
+            Kind::PercentChange => self.percent.change(rng),
+            Kind::Successive => self.percent.successive(rng),
         }
     }
 }

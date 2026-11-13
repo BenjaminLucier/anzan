@@ -28,6 +28,9 @@ pub enum Kind {
     Prime,
     Factorize,
     Convert,
+    PercentOf,
+    PercentChange,
+    Successive,
 }
 
 impl Kind {
@@ -45,6 +48,9 @@ impl Kind {
         Kind::Prime,
         Kind::Factorize,
         Kind::Convert,
+        Kind::PercentOf,
+        Kind::PercentChange,
+        Kind::Successive,
     ];
 
     /// The kinds a session asks unless told otherwise: the four basic
@@ -66,6 +72,9 @@ impl Kind {
             Kind::Prime => "prime",
             Kind::Factorize => "factorize",
             Kind::Convert => "convert",
+            Kind::PercentOf => "percent_of",
+            Kind::PercentChange => "percent_change",
+            Kind::Successive => "successive",
         }
     }
 
@@ -84,6 +93,9 @@ impl Kind {
             Kind::Prime => "Primes",
             Kind::Factorize => "Prime factors",
             Kind::Convert => "Fractions ↔ decimals ↔ %",
+            Kind::PercentOf => "Percent of",
+            Kind::PercentChange => "Percent change",
+            Kind::Successive => "Successive changes",
         }
     }
 }
@@ -213,6 +225,21 @@ pub enum Problem {
         from: Form,
         to: Form,
     },
+    /// `rate`% of `amount`.
+    PercentOf {
+        rate: i64,
+        amount: i64,
+    },
+    /// The percentage change from `from` to `to`.
+    PercentChange {
+        from: i64,
+        to: i64,
+    },
+    /// The net percentage change of `first`% followed by `second`%.
+    Successive {
+        first: i64,
+        second: i64,
+    },
 }
 
 impl Problem {
@@ -239,6 +266,9 @@ impl Problem {
             Problem::IsPrime { .. } => Kind::Prime,
             Problem::Factorize { .. } => Kind::Factorize,
             Problem::Convert { .. } => Kind::Convert,
+            Problem::PercentOf { .. } => Kind::PercentOf,
+            Problem::PercentChange { .. } => Kind::PercentChange,
+            Problem::Successive { .. } => Kind::Successive,
         }
     }
 
@@ -257,7 +287,10 @@ impl Problem {
             | Problem::Divisible { .. }
             | Problem::IsPrime { .. }
             | Problem::Factorize { .. }
-            | Problem::Convert { .. } => None,
+            | Problem::Convert { .. }
+            | Problem::PercentOf { .. }
+            | Problem::PercentChange { .. }
+            | Problem::Successive { .. } => None,
         }
     }
 
@@ -285,6 +318,12 @@ impl Problem {
                     Form::Decimal => decimal(value, REPEATING_PLACES),
                     Form::Percent => decimal(percent(value), REPEATING_PLACES - 2),
                 }
+            }
+            Problem::PercentOf { rate, amount } => Answer::Exact(ratio(rate * amount, 100)),
+            Problem::PercentChange { from, to } => Answer::Exact(ratio(100 * (to - from), from)),
+            Problem::Successive { first, second } => {
+                // (1 + a)(1 + b) − 1 = a + b + ab, in percent.
+                Answer::Exact(ratio(100 * (first + second) + first * second, 100))
             }
         }
     }
@@ -320,6 +359,13 @@ impl Problem {
                     Form::Percent => Expr::text(format!("{}%", percent(value))),
                 }
             }
+            Problem::PercentOf { rate, amount } => Expr::text(format!("{rate}% of {amount}")),
+            Problem::PercentChange { from, to } => Expr::text(format!("{from} → {to}")),
+            Problem::Successive { first, second } => Expr::text(format!(
+                "{}, {}",
+                signed_percent(first),
+                signed_percent(second)
+            )),
         }
     }
 
@@ -344,6 +390,8 @@ impl Problem {
                 Form::Decimal => "as a decimal",
                 Form::Percent => "as a percentage",
             }),
+            Problem::PercentChange { .. } => Some("percentage change"),
+            Problem::Successive { .. } => Some("net percentage change"),
             _ => None,
         }
     }
@@ -365,6 +413,20 @@ fn percent(value: Rational) -> Rational {
         .unwrap_or(Rational::ZERO)
 }
 
+/// `num / den`, which callers keep small enough not to overflow.
+fn ratio(num: i64, den: i64) -> Rational {
+    Rational::new(num.into(), den.into()).unwrap_or(Rational::ZERO)
+}
+
+/// `+20%` or `−10%`.
+fn signed_percent(p: i64) -> String {
+    if p < 0 {
+        format!("−{}%", -p)
+    } else {
+        format!("+{p}%")
+    }
+}
+
 /// The question on one line, as stored in history.
 impl fmt::Display for Problem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -373,6 +435,8 @@ impl fmt::Display for Problem {
             Problem::IsPrime { n } => write!(f, "Is {n} prime?"),
             Problem::Factorize { n } => write!(f, "Prime factors of {n}"),
             Problem::Convert { to, .. } => write!(f, "{} as {}", self.expr(), to.name()),
+            Problem::PercentChange { from, to } => write!(f, "% change from {from} to {to}"),
+            Problem::Successive { .. } => write!(f, "Net % change of {}", self.expr()),
             _ => write!(f, "{}", self.expr()),
         }
     }
@@ -443,6 +507,35 @@ mod tests {
         let p = convert(1, 16, Form::Percent, Form::Decimal);
         assert_eq!(p.to_string(), "6.25% as a decimal");
         assert!(p.answer().check("0.0625"));
+    }
+
+    #[test]
+    fn percentages() {
+        let p = Problem::PercentOf {
+            rate: 8,
+            amount: 50,
+        };
+        assert_eq!(p.to_string(), "8% of 50");
+        assert_eq!(p.answer().to_string(), "4");
+        let p = Problem::PercentOf {
+            rate: 15,
+            amount: 37,
+        };
+        assert_eq!(p.answer().to_string(), "5.55");
+        let p = Problem::PercentChange { from: 40, to: 30 };
+        assert_eq!(p.to_string(), "% change from 40 to 30");
+        assert!(p.answer().check("-25") && p.answer().check("-25%"));
+        let p = Problem::Successive {
+            first: 20,
+            second: -10,
+        };
+        assert_eq!(p.to_string(), "Net % change of +20%, −10%");
+        assert_eq!(p.answer().to_string(), "8");
+        let p = Problem::Successive {
+            first: 15,
+            second: 15,
+        };
+        assert_eq!(p.answer().to_string(), "32.25");
     }
 
     #[test]

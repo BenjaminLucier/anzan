@@ -207,6 +207,24 @@ pub fn glyph(c: char) -> Option<[&'static str; HEIGHT]> {
             "...#..",
             "......",
         ],
+        'o' => [
+            ".....",
+            ".....",
+            ".###.",
+            "#...#",
+            "#...#",
+            "#...#",
+            ".###.",
+        ],
+        'f' => [
+            "..##",
+            ".#..",
+            "####",
+            ".#..",
+            ".#..",
+            ".#..",
+            ".#..",
+        ],
         ' ' => [
             "...",
             "...",
@@ -224,7 +242,7 @@ pub fn glyph(c: char) -> Option<[&'static str; HEIGHT]> {
 mod tests {
     use super::*;
 
-    const DRAWN: &str = "0123456789+−×÷=.%,→ ";
+    const DRAWN: &str = "0123456789+−×÷=.%,→of ";
 
     #[test]
     fn glyph_rows_are_well_formed() {

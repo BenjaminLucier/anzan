@@ -21,6 +21,8 @@ submit = "auto"
 #   "square", "cube", "power_of_two"    powers to know by heart
 #   "divisible", "prime", "factorize"   divisibility, primes, factorization
 #   "convert"                           fractions ↔ decimals ↔ percentages
+#   "percent_of", "percent_change",     8% of 50, 40 → 50, and the net of
+#   "successive"                        +20% then −10%
 kinds = ["add", "sub", "mul", "div"]
 
 [problems.add_sub]
@@ -61,3 +63,12 @@ factorize = [4, 1000]
 # fractions in lowest terms with these denominators. Repeating decimals are
 # answered to 4 places (1/7 ≈ 0.1429), and percentages to 2 (14.29).
 denominators = [2, 20]
+
+[problems.percent]
+# "8% of 50" takes a rate from `rates` of an amount from `amounts`.
+# Percentage changes, alone or one after another, come from `changes`,
+# rounded to multiples of 5; changes start from multiples of 20 within
+# `amounts`, so they end on whole numbers.
+rates = [1, 99]
+amounts = [10, 200]
+changes = [-50, 100]
