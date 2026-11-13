@@ -1,0 +1,14 @@
+# `cargo run` (and `cargo test`) keep their config and history in
+# target/dev, so trying things out never touches your real practice
+# history in ~/.config/anzan and ~/.local/share/anzan.
+#
+# Variables already set in the environment win, so for a dev build on your
+# real history, either run the binary outside cargo:
+#
+#     cargo build --release && target/release/anzan
+#
+# or point the variables back yourself. `cargo clean` wipes the scratch data.
+
+[env]
+ANZAN_CONFIG = { value = "target/dev/config.toml", relative = true }
+ANZAN_DATA_DIR = { value = "target/dev/data", relative = true }

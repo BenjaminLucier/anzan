@@ -15,10 +15,13 @@ cargo run                 # the menu
 cargo run -- --kinds mul  # straight into a session
 ```
 
-To keep your real history clean while testing, point Anzan somewhere else:
+`cargo run` keeps its config and history in `target/dev`
+([.cargo/config.toml](.cargo/config.toml)), so trying things out never
+touches the history of an installed Anzan. `cargo clean` wipes it. To try a
+build on your real history, run it outside cargo:
 
 ```sh
-ANZAN_DATA_DIR=/tmp/anzan ANZAN_CONFIG=/tmp/anzan.toml cargo run
+cargo build --release && target/release/anzan
 ```
 
 ## Before opening a pull request
