@@ -11,6 +11,7 @@ use super::{
 use crate::{
     config::Submit,
     drill::Mode,
+    generate::Settings,
     history::History,
     problem::{Kind, Problem},
     store::{Attempt, SessionRecord},
@@ -267,9 +268,13 @@ impl Speed {
     }
 }
 
-/// What makes sessions comparable: the same length, submit mode and
-/// problem settings. Scores are only compared between sessions that
-/// share one.
+/// What makes sessions comparable: the same length, submit mode, mode
+/// and problems. Scores are only compared between sessions that share
+/// one.
+///
+/// Problems are the same when the same kinds are asked from the same
+/// ranges. The order kinds are listed in does not matter, and neither
+/// do the ranges of kinds that are not asked.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Fingerprint {
     pub duration: u64,
@@ -284,7 +289,7 @@ impl Fingerprint {
             duration,
             submit,
             mode,
-            problems: problems.to_string(),
+            problems: asked(problems).to_string(),
         }
     }
 
@@ -296,6 +301,37 @@ impl Fingerprint {
             &session.problems,
         )
     }
+}
+
+/// The part of a session's problem settings that decides what it asks:
+/// its kinds, in a fixed order, and the settings those kinds draw on.
+/// Settings in a shape this does not know are kept whole.
+fn asked(problems: &serde_json::Value) -> serde_json::Value {
+    let names = problems
+        .get("kinds")
+        .and_then(|kinds| kinds.as_array())
+        .and_then(|kinds| kinds.iter().map(|k| k.as_str()).collect::<Option<Vec<_>>>());
+    let Some(mut names) = names else {
+        return problems.clone();
+    };
+    let Ok(kinds) = names
+        .iter()
+        .map(|n| n.parse())
+        .collect::<Result<Vec<Kind>, _>>()
+    else {
+        return problems.clone();
+    };
+    // Sorted, not deduplicated: a kind listed twice is asked twice as
+    // often, which is a different session.
+    names.sort_unstable();
+    let mut asked = serde_json::Map::new();
+    asked.insert("kinds".to_owned(), names.into());
+    for section in kinds.into_iter().map(Settings::section) {
+        if let Some(settings) = problems.get(section) {
+            asked.insert(section.to_owned(), settings.clone());
+        }
+    }
+    asked.into()
 }
 
 /// Scores of completed sessions with `fingerprint`, oldest first.
@@ -480,7 +516,7 @@ pub fn costs(attempts: &[Attempt], baselines: &Baselines) -> BTreeMap<Kind, Vec<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::problem::Problem;
+    use crate::{generate::Range, problem::Problem};
 
     fn attempt(problem: Problem, ms: u64, correct: bool) -> Attempt {
         Attempt {
@@ -566,6 +602,36 @@ mod tests {
         ];
         let fp = Fingerprint::new(120, Submit::Auto, Mode::Jiyu, &problems);
         assert_eq!(trend(&sessions, &fp), [30, 34]);
+    }
+
+    #[test]
+    fn fingerprints_ignore_what_does_not_change_the_questions() {
+        let print = |edit: fn(&mut Settings)| {
+            let mut settings = Settings {
+                kinds: vec![Kind::Add, Kind::Sub, Kind::Mul],
+                ..Settings::default()
+            };
+            edit(&mut settings);
+            let problems = serde_json::to_value(&settings).unwrap();
+            Fingerprint::new(120, Submit::Auto, Mode::Jiyu, &problems)
+        };
+        let base = print(|_| {});
+        // The same kinds in another order, as a config file may list them.
+        assert_eq!(
+            print(|s| s.kinds = vec![Kind::Mul, Kind::Add, Kind::Sub]),
+            base
+        );
+        // A range of a kind that is not asked.
+        assert_eq!(print(|s| s.powers.squares = Range::new(2, 99)), base);
+        // But not a range that is, another kind, or a kind asked more often.
+        assert_ne!(print(|s| s.add_sub.lhs = Range::new(2, 999)), base);
+        assert_ne!(print(|s| s.kinds.push(Kind::Square)), base);
+        assert_ne!(print(|s| s.kinds.push(Kind::Add)), base);
+        // Settings it cannot read still compare, as they are.
+        let odd = serde_json::json!({"kinds": ["add", "juggling"], "x": 1});
+        let same = Fingerprint::new(120, Submit::Auto, Mode::Jiyu, &odd.clone());
+        assert_eq!(Fingerprint::new(120, Submit::Auto, Mode::Jiyu, &odd), same);
+        assert_ne!(same, base);
     }
 
     #[test]

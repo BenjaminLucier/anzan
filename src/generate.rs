@@ -165,6 +165,22 @@ impl Settings {
         self.probability.validate()
     }
 
+    /// The name of the settings that problems of `kind` are generated
+    /// from: its key in config files and in stored sessions.
+    pub fn section(kind: Kind) -> &'static str {
+        match kind {
+            Kind::Add | Kind::Sub => "add_sub",
+            Kind::Mul | Kind::Div => "mul_div",
+            Kind::LongMul => "long_mul",
+            Kind::Square | Kind::Cube | Kind::PowerOfTwo | Kind::Sqrt => "powers",
+            Kind::Divisible | Kind::Prime | Kind::Factorize => "number_theory",
+            Kind::Convert => "fractions",
+            Kind::PercentOf | Kind::PercentChange | Kind::Successive => "percent",
+            Kind::BasisPoints | Kind::Compound | Kind::Doubling => "finance",
+            Kind::Dice | Kind::Coins | Kind::ExpectedValue => "probability",
+        }
+    }
+
     /// # Panics
     ///
     /// Panics if the settings do not pass `validate`.
@@ -302,6 +318,22 @@ mod tests {
             let err = settings.validate().expect_err(name);
             assert!(err.contains(name), "{name}: {err}");
         }
+    }
+
+    #[test]
+    fn every_kind_has_a_section_and_every_section_a_kind() {
+        let json = serde_json::to_value(Settings::default()).unwrap();
+        let mut keys: Vec<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.retain(|&key| key != "kinds");
+        let mut sections: Vec<&str> = Kind::ALL.iter().map(|&k| Settings::section(k)).collect();
+        sections.sort_unstable();
+        sections.dedup();
+        assert_eq!(sections, keys);
     }
 
     #[test]
