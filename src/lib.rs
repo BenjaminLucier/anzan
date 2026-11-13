@@ -4,6 +4,7 @@ pub mod answer;
 pub mod app;
 pub mod cli;
 pub mod config;
+pub mod drill;
 pub mod export;
 pub mod expr;
 pub mod generate;

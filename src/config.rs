@@ -12,13 +12,18 @@ use anyhow::{Context, Result, bail};
 use etcetera::BaseStrategy;
 use serde::{Deserialize, Serialize};
 
-use crate::{generate::Settings, stats::Scoring};
+use crate::{
+    drill::{DrillConfig, Mode},
+    generate::Settings,
+    stats::Scoring,
+};
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub session: Session,
     pub problems: Settings,
+    pub drill: DrillConfig,
     pub scoring: Scoring,
 }
 
@@ -28,6 +33,7 @@ pub struct Session {
     /// Length of a session, in seconds.
     pub duration: u64,
     pub submit: Submit,
+    pub mode: Mode,
 }
 
 impl Default for Session {
@@ -35,6 +41,7 @@ impl Default for Session {
         Self {
             duration: 120,
             submit: Submit::Auto,
+            mode: Mode::Jiyu,
         }
     }
 }
@@ -109,6 +116,7 @@ impl Config {
             bail!("`session.duration` must be at least 1 second");
         }
         self.problems.validate().map_err(anyhow::Error::msg)?;
+        self.drill.validate().map_err(anyhow::Error::msg)?;
         self.scoring.validate().map_err(anyhow::Error::msg)
     }
 }

@@ -13,6 +13,15 @@ duration = 120
 #           answers are never final, only slow; Enter submits one anyway.
 #   "enter" only when you press Enter, so wrong answers count as wrong.
 submit = "auto"
+# How problems are chosen. Modes other than jiyu learn from your history:
+#   "jiyu"     自由 freedom: problems at random
+#   "kaizen"   改善 improvement: leans gently toward weak spots
+#   "keiko"    稽古 practice: new problems built on weak skills
+#   "fukushu"  復習 review: the questions that gave you trouble
+#   "oni"      鬼   demon: relentlessly on your weakest skills
+#   "rakusho"  楽勝 easy win: questions you know, to warm up
+#   "custom"   as set in [drill] below
+mode = "jiyu"
 
 [problems]
 # Kinds of problem to ask, chosen at random with equal odds. Any of:
@@ -88,6 +97,18 @@ years = [2, 5]
 # Doubling-time questions take a rate (percent) from `doubling` and want
 # 72 ÷ rate, within 5%.
 doubling = [1, 24]
+
+[drill]
+# Where the custom mode gets problems:
+#   "fresh"    new problems, like jiyu
+#   "similar"  new problems that use a weak skill, such as 7 × 8 or carrying
+#   "replay"   questions you have been asked before
+source = "similar"
+# How hard to lean toward weak spots: 0 ignores history, higher leans
+# harder, and negative leans toward strengths instead.
+focus = 1.5
+# Days of history every mode draws on; 0 for all of it.
+window = 60
 
 [scoring]
 # How the dashboard and the practice modes judge weak spots. Each attempt
