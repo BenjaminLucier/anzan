@@ -46,6 +46,10 @@ pub struct Summary {
     pub skipped: u32,
     /// Average time per correct answer over the whole session.
     pub time_per_answer: Option<Duration>,
+    pub mode: Mode,
+    /// The best score before this one among finished sessions with the
+    /// same settings, if there were any.
+    pub previous_best: Option<u32>,
 }
 
 /// The previous question, shown after a wrong answer or a skip so the
@@ -216,6 +220,8 @@ impl Session {
             wrong: self.wrong,
             skipped: self.skipped,
             time_per_answer: (self.score > 0).then(|| self.duration / self.score),
+            mode: self.mode,
+            previous_best: None,
         }
     }
 

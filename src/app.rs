@@ -24,6 +24,7 @@ pub use self::{
 use crate::{
     config::Config,
     history::History,
+    stats::report::{self, Fingerprint},
     store::{Attempt, SessionRecord},
 };
 
@@ -206,9 +207,16 @@ impl App {
 
     fn end_session(&mut self, now: Instant, completed: bool) {
         if let Screen::Practice(session) = &self.screen {
-            self.journal
-                .push(Record::Session(session.record(now, completed)));
-            self.screen = Screen::Summary(session.summary());
+            let record = session.record(now, completed);
+            let fingerprint = Fingerprint::of(&record);
+            let previous_best = report::trend(&self.journal.history.sessions, &fingerprint)
+                .into_iter()
+                .max();
+            self.journal.push(Record::Session(record));
+            self.screen = Screen::Summary(Summary {
+                previous_best,
+                ..session.summary()
+            });
         }
     }
 }
@@ -670,5 +678,25 @@ mod tests {
         assert!(on_menu(&app));
         press(&mut app, KeyCode::Char('d'), t0 + DURATION);
         assert!(matches!(app.screen, Screen::Dashboard(_)));
+    }
+
+    #[test]
+    fn summary_compares_with_the_best_so_far() {
+        let (mut app, t0) = new_app();
+        app.tick(t0 + DURATION);
+        assert_eq!(summary(&app).previous_best, None);
+        press(&mut app, KeyCode::Enter, t0 + DURATION);
+        let t1 = t0 + DURATION;
+        let answer = session(&app).problem.answer().to_string();
+        type_str(&mut app, &answer, t1);
+        app.tick(t1 + DURATION);
+        assert_eq!(summary(&app).score, 1);
+        assert_eq!(summary(&app).previous_best, Some(0));
+        // An abandoned session does not count.
+        press(&mut app, KeyCode::Enter, t1 + DURATION);
+        press(&mut app, KeyCode::Esc, t1 + DURATION);
+        press(&mut app, KeyCode::Enter, t1 + DURATION);
+        app.tick(t1 + 2 * DURATION);
+        assert_eq!(summary(&app).previous_best, Some(1));
     }
 }

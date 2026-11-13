@@ -254,12 +254,20 @@ fn render_summary(summary: &Summary, frame: &mut Frame, area: Rect) {
     if summary.skipped > 0 {
         misses.push(format!("{} skipped", summary.skipped));
     }
+    let best = match summary.previous_best {
+        None => Line::from("first session with these settings").dim(),
+        Some(best) if summary.score > best => {
+            Line::from(format!("new best, up from {best}")).bold()
+        }
+        Some(best) => Line::from(format!("best {best}")).dim(),
+    };
     let text = Text::from(vec![
-        Line::from("Time's up"),
+        Line::from(format!("Time's up · {}", summary.mode.label())),
         Line::default(),
         Line::from(summary.score.to_string()).bold(),
         Line::from("correct"),
         Line::from(misses.join(" · ")).dim(),
+        best,
         Line::default(),
         Line::from(pace).dim(),
         Line::default(),
