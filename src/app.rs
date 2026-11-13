@@ -320,6 +320,9 @@ impl App {
         self.screen = Screen::Dashboard(Dashboard::new(report));
     }
 
+    /// Ends the session being practised, if there is one, and records
+    /// it. A session left before anything was answered or skipped is
+    /// not recorded: nothing happened in it.
     fn end_session(&mut self, now: Instant, completed: bool) {
         if let Screen::Practice(session) = &self.screen {
             let record = session.record(now, completed);
@@ -327,7 +330,9 @@ impl App {
             let previous_best = report::trend(&self.journal.history.sessions, &fingerprint)
                 .into_iter()
                 .max();
-            self.journal.push(Record::Session(record));
+            if completed || session.attempts() > 0 {
+                self.journal.push(Record::Session(record));
+            }
             self.screen = Screen::Summary(Summary {
                 previous_best,
                 ..session.summary()
@@ -595,9 +600,10 @@ mod tests {
     #[test]
     fn ctrl_c_quits_from_anywhere() {
         let (mut app, t0) = new_app();
+        press(&mut app, KeyCode::Tab, t0);
         app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL), t0);
         assert!(app.quit);
-        let Record::Session(session) = only_record(&mut app) else {
+        let Some(Record::Session(session)) = records(&mut app).pop() else {
             panic!("expected the session to be recorded");
         };
         assert!(!session.completed);
@@ -760,12 +766,40 @@ mod tests {
     #[test]
     fn abandoned_session_is_recorded_as_incomplete() {
         let (mut app, t0) = new_app();
+        press(&mut app, KeyCode::Tab, t0 + secs(10.0));
         press(&mut app, KeyCode::Esc, t0 + secs(30.0));
-        let Record::Session(session) = only_record(&mut app) else {
-            panic!("expected one session");
+        let [Record::Attempt(_), Record::Session(session)] = &records(&mut app)[..] else {
+            panic!("expected a skip and then the session");
         };
         assert!(!session.completed);
         assert_eq!(session.end, "2026-11-13T10:00:30Z".parse().unwrap());
+    }
+
+    #[test]
+    fn session_left_before_any_answer_is_not_recorded() {
+        // Opened and left at once, by Esc or by Ctrl-C.
+        let (mut app, t0) = new_app();
+        press(&mut app, KeyCode::Esc, t0 + secs(1.0));
+        assert!(on_menu(&app));
+        assert!(records(&mut app).is_empty());
+        assert!(app.history().sessions.is_empty());
+        let (mut app, t0) = new_app();
+        app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL), t0);
+        assert!(app.quit && records(&mut app).is_empty());
+
+        // Typing without handing anything in is not an answer either.
+        let (mut app, t0) = new_app();
+        type_str(&mut app, WRONG, t0);
+        press(&mut app, KeyCode::Esc, t0 + secs(5.0));
+        assert!(records(&mut app).is_empty());
+
+        // But a session that ran its time is one, answered or not.
+        let (mut app, t0) = new_app();
+        app.tick(t0 + DURATION);
+        let Record::Session(session) = only_record(&mut app) else {
+            panic!("expected the session");
+        };
+        assert!(session.completed && session.score == 0);
     }
 
     #[test]
@@ -886,6 +920,7 @@ mod tests {
         // A session abandoned just now, not yet saved, goes too.
         press(&mut app, KeyCode::Esc, now);
         press(&mut app, KeyCode::Enter, now);
+        press(&mut app, KeyCode::Tab, now);
         press(&mut app, KeyCode::Esc, now);
         assert_eq!(app.history().sessions.len(), 2);
         press(&mut app, KeyCode::Char('d'), now);

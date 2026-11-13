@@ -217,7 +217,8 @@ supports it, and in the nearest of 256 colours otherwise.
 ## History
 
 Every answer is appended to `$XDG_DATA_HOME/anzan/attempts.jsonl` (usually
-`~/.local/share/anzan`), and every session to `sessions.jsonl` beside it:
+`~/.local/share/anzan`), and every session to `sessions.jsonl` beside it,
+unless it was left before anything was answered or skipped:
 one JSON object per line, easy to read with other tools. To export as CSV:
 
 ```sh

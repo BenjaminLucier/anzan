@@ -195,6 +195,12 @@ impl Session {
         self.next_problem(now);
     }
 
+    /// How many problems have been answered, rightly or wrongly, or
+    /// skipped.
+    pub fn attempts(&self) -> u32 {
+        self.score + self.wrong + self.skipped
+    }
+
     pub fn backspace(&mut self) {
         if self.input.pop().is_some() {
             self.edits += 1;
