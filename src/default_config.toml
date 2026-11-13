@@ -88,3 +88,15 @@ years = [2, 5]
 # Doubling-time questions take a rate (percent) from `doubling` and want
 # 72 ÷ rate, within 5%.
 doubling = [1, 24]
+
+[scoring]
+# How the dashboard and the practice modes judge weak spots. Each attempt
+# scores the log of how much slower it was than your usual time for that
+# kind of problem (0 is typical, 0.7 is twice as long), plus penalties.
+# History is rescored whenever this changes.
+wrong = 1.5       # added for a wrong answer
+skip = 2.0        # added for a skip
+edit = 0.15       # added for each backspace
+by_submit = true  # compare times only within the same submit mode
+prior = 5.0       # attempts' worth of the overall average a skill starts from
+half_life = 30.0  # days for an attempt's weight to halve; 0 never fades

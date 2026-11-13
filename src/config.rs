@@ -12,13 +12,14 @@ use anyhow::{Context, Result, bail};
 use etcetera::BaseStrategy;
 use serde::{Deserialize, Serialize};
 
-use crate::generate::Settings;
+use crate::{generate::Settings, stats::Scoring};
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub session: Session,
     pub problems: Settings,
+    pub scoring: Scoring,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,7 +108,8 @@ impl Config {
         if self.session.duration == 0 {
             bail!("`session.duration` must be at least 1 second");
         }
-        self.problems.validate().map_err(anyhow::Error::msg)
+        self.problems.validate().map_err(anyhow::Error::msg)?;
+        self.scoring.validate().map_err(anyhow::Error::msg)
     }
 }
 
