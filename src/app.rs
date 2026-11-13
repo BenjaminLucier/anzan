@@ -69,6 +69,8 @@ pub struct App {
     journal: Journal,
     pub screen: Screen,
     pub quit: bool,
+    /// Whether the key help is showing over the screen.
+    pub help: bool,
 }
 
 impl App {
@@ -81,6 +83,7 @@ impl App {
             journal: Journal::default(),
             screen: Screen::Menu(Menu::default()),
             quit: false,
+            help: false,
         }
     }
 
@@ -140,7 +143,15 @@ impl App {
             self.quit = true;
             return;
         }
+        // The help takes every key until it is closed.
+        if self.help {
+            if matches!(key.code, KeyCode::Esc | KeyCode::Char('?' | 'q')) {
+                self.help = false;
+            }
+            return;
+        }
         match (&mut self.screen, key.code) {
+            (Screen::Menu(_) | Screen::Dashboard(_), KeyCode::Char('?')) => self.help = true,
             (Screen::Menu(_), KeyCode::Esc | KeyCode::Char('q')) => self.quit = true,
             (Screen::Menu(_), KeyCode::Enter) => self.start(now),
             (Screen::Menu(_) | Screen::Summary(_), KeyCode::Char('d')) => {
@@ -705,5 +716,29 @@ mod tests {
         press(&mut app, KeyCode::Enter, t1 + DURATION);
         app.tick(t1 + 2 * DURATION);
         assert_eq!(summary(&app).previous_best, Some(1));
+    }
+
+    #[test]
+    fn help_opens_and_swallows_keys_until_closed() {
+        let t0 = Instant::now();
+        let mut app = App::new(
+            Config::default(),
+            StdRng::seed_from_u64(0),
+            t0,
+            wall_epoch(),
+        );
+        press(&mut app, KeyCode::Char('?'), t0);
+        assert!(app.help);
+        press(&mut app, KeyCode::Enter, t0);
+        assert!(
+            on_menu(&app),
+            "Enter must not start a session under the help"
+        );
+        press(&mut app, KeyCode::Esc, t0);
+        assert!(!app.help && !app.quit);
+        // Typed during practice, ? is just a character.
+        let (mut app, t0) = new_app();
+        press(&mut app, KeyCode::Char('?'), t0);
+        assert!(!app.help);
     }
 }

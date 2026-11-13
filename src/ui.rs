@@ -17,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Flex, Layout, Margin, Position, Rect, Size},
     style::{Style, Stylize},
     text::{Line, Span, Text},
-    widgets::Block,
+    widgets::{Block, BorderType, Clear, Padding, Paragraph},
 };
 
 use self::grid::Drawing;
@@ -34,10 +34,10 @@ pub fn render(app: &App, frame: &mut Frame) {
     let [top, body] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
     let hint = match app.screen {
-        Screen::Menu(_) => "Esc quit ",
+        Screen::Menu(_) => "? help · Esc quit ",
         Screen::Practice(_) => "Esc menu ",
         Screen::Summary(_) => "Enter again · d stats · Esc menu ",
-        Screen::Dashboard(_) => "Esc menu ",
+        Screen::Dashboard(_) => "? help · Esc menu ",
     };
     frame.render_widget(Line::from(hint).dim().right_aligned(), top);
     match &app.screen {
@@ -49,6 +49,75 @@ pub fn render(app: &App, frame: &mut Frame) {
         Screen::Summary(summary) => render_summary(summary, frame, body),
         Screen::Dashboard(dash) => dashboard::render(dash, app.history(), frame, body),
     }
+    if app.help {
+        render_help(&app.screen, frame);
+    }
+}
+
+/// Keys for the menu, as (keys, what they do).
+const MENU_KEYS: &[(&str, &str)] = &[
+    ("← → h l Tab", "switch panel"),
+    ("1–8", "jump to a panel"),
+    ("↑ ↓ j k", "move; in Mode, choose the mode"),
+    ("Space", "toggle a kind, or change a setting"),
+    ("a", "toggle every kind in the group"),
+    ("Enter", "start a session"),
+    ("d", "open the statistics"),
+    ("?", "this help"),
+    ("Esc q", "quit"),
+];
+
+/// Keys for the dashboard.
+const DASHBOARD_KEYS: &[(&str, &str)] = &[
+    ("← → h l Tab", "switch list"),
+    ("1–4", "jump to a list"),
+    ("↑ ↓ j k", "select"),
+    ("PgDn PgUp J K", "scroll the details"),
+    ("?", "this help"),
+    ("Esc q", "back to the menu"),
+];
+
+/// Keys while practising, shown with the others for reference.
+const PRACTICE_KEYS: &[(&str, &str)] = &[
+    ("Enter", "submit (auto mode submits a right answer itself)"),
+    ("Tab", "skip, showing the answer"),
+    ("Esc", "end the session early"),
+];
+
+/// A heading, then each key and what it does.
+fn help_section(name: &str, keys: &[(&'static str, &'static str)]) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(name.to_owned()).bold()];
+    lines.extend(keys.iter().map(|&(k, what)| {
+        Line::from(vec![
+            Span::from(format!("  {k:<14}")).bold(),
+            Span::from(what),
+        ])
+    }));
+    lines
+}
+
+/// A box over the screen listing its keys.
+fn render_help(screen: &Screen, frame: &mut Frame) {
+    let (title, keys): (&str, &[(&str, &str)]) = match screen {
+        Screen::Dashboard(_) => ("Statistics", DASHBOARD_KEYS),
+        _ => ("Menu", MENU_KEYS),
+    };
+    let mut lines = help_section(title, keys);
+    lines.push(Line::default());
+    lines.extend(help_section("Practice", PRACTICE_KEYS));
+    lines.push(Line::default());
+    lines.push(Line::from("Esc or ? to close").dim());
+    let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4;
+    let height = lines.len() as u16 + 2;
+    let area = frame
+        .area()
+        .centered(Constraint::Length(width), Constraint::Length(height));
+    frame.render_widget(Clear, area);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .title(" Keys ")
+        .padding(Padding::horizontal(1));
+    frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 /// The clock in the top left, and the score in the middle.
