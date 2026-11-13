@@ -96,7 +96,7 @@ fn facts(a: i64, b: i64) -> Vec<Feature> {
 }
 
 /// Column carries when adding two non-negative numbers.
-fn carries(a: i64, b: i64) -> u8 {
+pub fn carries(a: i64, b: i64) -> u8 {
     let (mut a, mut b) = (a.unsigned_abs(), b.unsigned_abs());
     let (mut carry, mut count) = (0, 0);
     while a > 0 || b > 0 {
@@ -108,7 +108,7 @@ fn carries(a: i64, b: i64) -> u8 {
 }
 
 /// Column borrows when subtracting `b` from `a`, for `a ≥ b ≥ 0`.
-fn borrows(a: i64, b: i64) -> u8 {
+pub fn borrows(a: i64, b: i64) -> u8 {
     let (mut a, mut b) = (a.unsigned_abs(), b.unsigned_abs());
     let (mut borrow, mut count) = (0, 0);
     while a > 0 || b > 0 {
