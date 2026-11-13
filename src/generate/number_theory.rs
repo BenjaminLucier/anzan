@@ -78,7 +78,8 @@ impl NumberTheory {
         if self.factorize.lo() < 4 {
             return Err("`number_theory.factorize` must start at 4 or more".into());
         }
-        if self.primes.hi() > 1_000_000_000 || self.factorize.hi() > 1_000_000_000 {
+        let ranges = [self.divisors, self.dividends, self.primes, self.factorize];
+        if ranges.iter().any(|r| r.hi() > 1_000_000_000) {
             return Err("`number_theory` numbers must be at most 1,000,000,000".into());
         }
         Ok(())

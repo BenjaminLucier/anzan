@@ -56,6 +56,11 @@ impl Range {
         (self.lo..=self.hi).contains(&n)
     }
 
+    /// Whether every number in the range is at most `limit` from zero.
+    pub fn within(self, limit: i64) -> bool {
+        -limit <= self.lo && self.hi <= limit
+    }
+
     pub fn sample(self, rng: &mut impl Rng) -> i64 {
         rng.random_range(self.lo..=self.hi)
     }
@@ -135,8 +140,22 @@ impl Settings {
         if self.kinds.is_empty() {
             return Err("`kinds` must list at least one kind of problem".into());
         }
-        if self.mul_div.lhs.contains(0) && self.kinds.contains(&Kind::Div) {
+        // Whether or not division is on now: the menu can turn it on.
+        if self.mul_div.lhs.contains(0) {
             return Err("`mul_div.lhs` must not contain 0, since it is the divisor".into());
+        }
+        let operands = [
+            ("add_sub", self.add_sub.lhs, self.add_sub.rhs),
+            ("mul_div", self.mul_div.lhs, self.mul_div.rhs),
+            ("long_mul", self.long_mul.lhs, self.long_mul.rhs),
+        ];
+        for (name, lhs, rhs) in operands {
+            if ![lhs, rhs].iter().all(|r| r.within(Problem::MAX_OPERAND)) {
+                return Err(format!(
+                    "`{name}` operands must lie within ±{}",
+                    Problem::MAX_OPERAND
+                ));
+            }
         }
         self.powers.validate()?;
         self.number_theory.validate()?;
@@ -220,9 +239,16 @@ mod tests {
             ..Settings::default()
         };
         assert!(no_kinds.validate().is_err());
-        let mut zero_divisor = Settings::default();
+        // Rejected even with division off, since the menu can turn it on.
+        let mut zero_divisor = Settings {
+            kinds: vec![Kind::Add],
+            ..Settings::default()
+        };
         zero_divisor.mul_div.lhs = Range::new(0, 12);
         assert!(zero_divisor.validate().is_err());
+        let mut overflowing = Settings::default();
+        overflowing.add_sub.rhs = Range::new(0, i64::MAX);
+        assert!(overflowing.validate().is_err());
     }
 
     #[test]
@@ -251,8 +277,67 @@ mod tests {
             for _ in 0..200 {
                 let p = settings.generate_kind(kind, &mut rng);
                 assert_eq!(p.kind(), kind);
+                assert!(p.is_well_formed(), "{p:?}");
                 let json = serde_json::to_value(p).unwrap();
                 assert_eq!(json["kind"], kind.name(), "stored tag of {p}");
+                let answer = p.answer();
+                assert!(answer.check(&answer.to_string()), "{p} = {answer}");
+            }
+        }
+    }
+
+    /// The widest settings that pass validation still ask problems with
+    /// answers, so nothing a config can say makes a session panic.
+    #[test]
+    fn widest_settings_stay_well_formed() {
+        let wide = |lo| Range::new(lo, Problem::MAX_OPERAND);
+        let all = Range::new(-Problem::MAX_OPERAND, Problem::MAX_OPERAND);
+        let settings = Settings {
+            kinds: Kind::ALL.to_vec(),
+            add_sub: AddSub { lhs: all, rhs: all },
+            mul_div: MulDiv {
+                lhs: wide(1),
+                rhs: all,
+            },
+            long_mul: LongMul { lhs: all, rhs: all },
+            powers: Powers {
+                squares: all,
+                cubes: Range::new(-2_000_000, 2_000_000),
+                twos: Range::new(0, 62),
+                roots: wide(2),
+            },
+            number_theory: NumberTheory {
+                divisors: wide(1),
+                dividends: wide(0),
+                primes: wide(0),
+                factorize: wide(4),
+            },
+            fractions: Fractions {
+                denominators: Range::new(2, 1_000),
+            },
+            percent: Percent {
+                rates: Range::new(0, 1_000),
+                amounts: Range::new(1, 1_000_000),
+                changes: Range::new(-99, 1_000),
+            },
+            finance: Finance {
+                bps: Range::new(1, 10_000),
+                rates: Range::new(1, 100),
+                years: Range::new(1, 30),
+                doubling: Range::new(1, 100),
+            },
+            probability: Probability {
+                flips: Range::new(1, 10),
+                odds: Range::new(2, 12),
+                stakes: Range::new(1, 1_000_000),
+            },
+        };
+        settings.validate().unwrap();
+        let mut rng = StdRng::seed_from_u64(0);
+        for &kind in Kind::ALL {
+            for _ in 0..50 {
+                let p = settings.generate_kind(kind, &mut rng);
+                assert!(p.is_well_formed(), "{p:?}");
                 let answer = p.answer();
                 assert!(answer.check(&answer.to_string()), "{p} = {answer}");
             }

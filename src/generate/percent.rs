@@ -69,7 +69,7 @@ impl Percent {
             return Err("`percent.amounts` must lie within [1, 1000000]".into());
         }
         if self.changes.lo() <= -100 || self.changes.hi() > 1_000 {
-            return Err("`percent.changes` must lie within [-95, 1000]".into());
+            return Err("`percent.changes` must lie within [-99, 1000]".into());
         }
         if !(self.changes.lo()..=self.changes.hi()).any(|c| c != 0 && c % 5 == 0) {
             return Err("`percent.changes` must include a nonzero multiple of 5".into());

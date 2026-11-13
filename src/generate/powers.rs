@@ -60,14 +60,15 @@ impl Powers {
 
     /// Checks that no answer overflows.
     pub fn validate(&self) -> Result<(), String> {
-        let fits = |r: Range, limit: i64| r.lo() >= -limit && r.hi() <= limit;
-        if !fits(self.squares, 3_000_000_000) || !fits(self.cubes, 2_000_000) {
+        if !self.squares.within(1_000_000_000) || !self.cubes.within(2_000_000) {
             return Err("`powers` bases are too large".into());
         }
         if self.twos.lo() < 0 || self.twos.hi() > 62 {
             return Err("`powers.twos` must be within [0, 62]".into());
         }
-        if self.roots.lo() < 2 || self.roots.hi() > 1_000_000_000 || self.roots.hi() < 3 {
+        // Of any two neighbours, at most one is a square.
+        let lone_square = self.roots.lo() == self.roots.hi() && is_square(self.roots.lo());
+        if self.roots.lo() < 2 || self.roots.hi() > 1_000_000_000 || lone_square {
             return Err(
                 "`powers.roots` must lie within [2, 1000000000] and include a non-square".into(),
             );
@@ -122,5 +123,10 @@ mod tests {
             ..Powers::default()
         };
         assert!(p.validate().is_err());
+        let only_a_square = Powers {
+            roots: Range::new(9, 9),
+            ..Powers::default()
+        };
+        assert!(only_a_square.validate().is_err());
     }
 }

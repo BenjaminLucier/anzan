@@ -378,6 +378,10 @@ pub enum Problem {
 }
 
 impl Problem {
+    /// The largest operand, either side of zero, of the four basic
+    /// operations. Small enough that no answer overflows.
+    pub const MAX_OPERAND: i64 = 1_000_000_000;
+
     pub fn binary(op: Op, lhs: i64, rhs: i64) -> Self {
         match op {
             Op::Add => Problem::Add { lhs, rhs },
@@ -443,7 +447,57 @@ impl Problem {
         }
     }
 
+    /// Whether the problem has an answer that can be worked out without
+    /// overflowing or dividing by zero. Every generated problem does;
+    /// history edited by hand may not.
+    pub fn is_well_formed(&self) -> bool {
+        let fits = |n: i64| n.abs() <= Self::MAX_OPERAND;
+        let positive = |n: i64| (1..=Self::MAX_OPERAND).contains(&n);
+        match *self {
+            Problem::Add { lhs, rhs }
+            | Problem::Mul { lhs, rhs }
+            | Problem::LongMul { lhs, rhs } => fits(lhs) && fits(rhs),
+            // What is taken from or divided is a sum or a product of two
+            // operands, so it can be larger than either.
+            Problem::Sub { lhs, rhs } => lhs.abs() <= 2 * Self::MAX_OPERAND && fits(rhs),
+            Problem::Div { lhs, rhs } => {
+                lhs.abs() <= Self::MAX_OPERAND * Self::MAX_OPERAND && fits(rhs) && rhs != 0
+            }
+            Problem::Square { base } => fits(base),
+            Problem::Cube { base } => base.abs() <= 2_000_000,
+            Problem::PowerOfTwo { exp } => (0..=62).contains(&exp),
+            Problem::Divisible { n, d } => fits(n) && fits(d) && d != 0,
+            Problem::IsPrime { n } => (0..=Self::MAX_OPERAND).contains(&n),
+            Problem::Factorize { n } | Problem::Sqrt { n } => positive(n),
+            Problem::Convert { num, den, .. } => fits(num) && positive(den),
+            Problem::PercentOf { rate, amount } => fits(rate) && fits(amount),
+            Problem::PercentChange { from, to } => fits(from) && fits(to) && from != 0,
+            Problem::Successive { first, second } => fits(first) && fits(second),
+            Problem::BasisPoints { bp, amount, .. } => fits(bp) && fits(amount.unwrap_or(0)),
+            Problem::Compound {
+                principal,
+                rate,
+                years,
+            } => fits(principal) && fits(rate) && (0..=100).contains(&years),
+            Problem::Doubling { rate } => fits(rate) && rate != 0,
+            Problem::Dice { total } => (2..=12).contains(&total),
+            Problem::Coins { heads, flips } => {
+                (0..=30).contains(&flips) && (0..=flips).contains(&heads)
+            }
+            Problem::ExpectedValue {
+                win,
+                num,
+                den,
+                lose,
+            } => fits(win) && fits(lose) && positive(den) && (0..=den).contains(&num),
+        }
+    }
+
     /// What counts as a correct answer.
+    ///
+    /// # Panics
+    ///
+    /// May panic if the problem is not well formed.
     pub fn answer(&self) -> Answer {
         match *self {
             Problem::Add { .. }
@@ -847,6 +901,51 @@ mod tests {
         let p = Problem::Doubling { rate: 8 };
         assert_eq!(p.to_string(), "Years to double at 8%");
         assert!(p.answer().check("9") && !p.answer().check("10"));
+    }
+
+    #[test]
+    fn impossible_problems_are_not_well_formed() {
+        let impossible = [
+            Problem::Div { lhs: 6, rhs: 0 },
+            Problem::Divisible { n: 6, d: 0 },
+            Problem::Add {
+                lhs: i64::MAX,
+                rhs: 1,
+            },
+            Problem::Cube { base: 3_000_000 },
+            Problem::PowerOfTwo { exp: 64 },
+            Problem::IsPrime { n: -1 },
+            Problem::Factorize { n: 0 },
+            Problem::Sqrt { n: -4 },
+            Problem::PercentChange { from: 0, to: 5 },
+            Problem::Doubling { rate: 0 },
+            Problem::Dice { total: 13 },
+            Problem::Coins { heads: 3, flips: 2 },
+            Problem::Coins {
+                heads: 1,
+                flips: 64,
+            },
+            Problem::Compound {
+                principal: 100,
+                rate: 5,
+                years: 1 << 40,
+            },
+            Problem::ExpectedValue {
+                win: 1,
+                num: 1,
+                den: 0,
+                lose: 1,
+            },
+            Problem::Convert {
+                num: 1,
+                den: 0,
+                from: Form::Fraction,
+                to: Form::Decimal,
+            },
+        ];
+        for p in impossible {
+            assert!(!p.is_well_formed(), "{p:?}");
+        }
     }
 
     #[test]

@@ -103,8 +103,14 @@ impl Store {
         self.append(&self.sessions_path(), session)
     }
 
+    /// Every attempt on record. A row whose problem has no answer, as
+    /// only editing the file by hand could leave, counts as damaged.
     pub fn attempts(&self) -> Result<Loaded<Attempt>> {
-        read(&self.attempts_path())
+        let mut loaded: Loaded<Attempt> = read(&self.attempts_path())?;
+        let read = loaded.rows.len();
+        loaded.rows.retain(|a| a.problem.is_well_formed());
+        loaded.skipped += read - loaded.rows.len();
+        Ok(loaded)
     }
 
     pub fn sessions(&self) -> Result<Loaded<SessionRecord>> {
@@ -231,10 +237,17 @@ mod tests {
             .append(true)
             .open(store.attempts_path())
             .unwrap();
+        // A row that parses but asks the impossible, then one cut short.
+        let impossible = serde_json::to_string(&attempt()).unwrap().replace(
+            r#""kind":"add","lhs":47,"rhs":38"#,
+            r#""kind":"div","lhs":47,"rhs":0"#,
+        );
+        file.write_all(format!("{impossible}\n").as_bytes())
+            .unwrap();
         file.write_all(b"\n{\"ts\":\"2026-11-1").unwrap();
 
         let loaded = store.attempts().unwrap();
         assert_eq!(loaded.rows, [attempt()]);
-        assert_eq!(loaded.skipped, 1);
+        assert_eq!(loaded.skipped, 2);
     }
 }
