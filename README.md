@@ -10,13 +10,9 @@ find your weak spots and work on them.
 ```text
  1:52                           Score 7                        Esc menu
 
-       ██████                                    ██          ████
-     ██      ██          ██      ██            ████        ██
-     ██      ██            ██  ██                ██      ██
-       ████████              ██                  ██      ████████
-             ██            ██  ██                ██      ██      ██
-           ██            ██      ██              ██      ██      ██
-       ████                                    ██████      ██████
+                           ┏━┓       ╺━┓ ┏━┓
+                           ┣━┫   ╳    ━┫ ┗━┫
+                           ┗━┛       ╺━┛ ╺━┛
 
                         ┌──────────────────────┐
                         │          10          │
@@ -45,18 +41,22 @@ cargo install --path .
 
 ## Use
 
-Run `anzan` to open the menu. Choose a mode, a length, how answers are
-handed in and which kinds of problem to ask, then press Enter.
+Run `anzan` to open the menu: a panel of practice modes, one for the
+session's length and submit mode, and one for each group of problems.
+Choose what to practise, then press Enter.
 
-| Key           | Menu            | Practice          | Dashboard  |
-|---------------|-----------------|-------------------|------------|
-| ↑ ↓ or j k    | choose a row    |                   |            |
-| ← → or h l    | change it       |                   | switch tab |
-| Enter         | start           | submit            |            |
-| Tab           |                 | skip              | next tab   |
-| d             | open dashboard  |                   |            |
-| 1–5           |                 |                   | jump to tab|
-| Esc           | quit            | back to menu      | back       |
+| Key              | Menu                        | Practice     | Dashboard          |
+|------------------|-----------------------------|--------------|--------------------|
+| ← → or h l, Tab  | switch panel                |              | switch list        |
+| ↑ ↓ or j k       | move; in Mode, choose mode  |              | select             |
+| 1–8              | jump to a panel             |              | jump to a list     |
+| Space            | toggle or change            |              |                    |
+| a                | toggle the whole group      |              |                    |
+| Enter            | start                       | submit       |                    |
+| Tab              |                             | skip         |                    |
+| PgUp PgDn, J K   |                             |              | scroll details     |
+| d                | open the dashboard          |              |                    |
+| Esc              | quit                        | back to menu | back to menu       |
 
 Any flag starts a session straight away, skipping the menu. The flags stay
 in effect afterwards, so when time is up you land in the menu with the same
@@ -100,8 +100,8 @@ Answers can be written however is natural:
 The default is the four basic operations: addition and subtraction up to
 100 + 100, and multiplication and division up to 12 × 100.
 
-Questions are drawn properly in a hand-made bitmap font: exponents raised,
-fractions stacked and roots under a radical, scaled to fit the terminal.
+Questions are drawn in a hand-made font of box-drawing lines, with
+exponents raised, fractions stacked and roots under a radical.
 
 ## Modes
 
@@ -125,17 +125,21 @@ With no history yet, every mode asks problems at random.
 
 ## Statistics
 
-Press `d` on the menu or after a session.
+Press `d` on the menu or after a session. Lists run down the left, and the
+right shows the details of whatever is selected:
 
-- **Overview**: totals and your daily streak; the score trend over sessions
-  with exactly the current settings, since scores are only comparable then;
-  and per kind, the number asked, accuracy, and median and 90th-percentile
-  times.
-- **Speed**: response time by percentile, over all time and the last week.
-- **Facts**: a times-table heatmap from 2 × 2 to 9 × 9, and how much carrying
-  in addition and borrowing in subtraction slows you down.
-- **Activity**: practice per day over the past year, a column per week.
-- **Weak spots**: the questions that have cost you the most.
+- **Summary**: totals and your daily streak, with the score trend over
+  sessions with exactly the current settings (scores are only comparable
+  then), practice per day over the past year, and response time by
+  percentile, over all time and the last week.
+- **Kinds**: accuracy and median time for each kind practised. Select one
+  for its speed curve and hardest questions, with a times-table heatmap
+  for multiplication and division, or what carrying and borrowing cost in
+  addition and subtraction.
+- **Sessions**: every session, newest first. Select one to see each
+  question asked, the answer, what you gave and how long it took.
+- **Weak spots**: the questions that have cost you the most. Select one to
+  see every attempt at it.
 
 Times are compared only within the same submit mode by default, since
 pressing Enter takes time of its own.
