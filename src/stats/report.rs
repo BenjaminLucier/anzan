@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use jiff::{SignedDuration, Timestamp, civil::Date, tz::TimeZone};
+use jiff::{SignedDuration, Timestamp, ToSpan, civil::Date, tz::TimeZone};
 
 use super::{
     features::{Feature, features},
@@ -25,6 +25,13 @@ pub const RECENT: SignedDuration = SignedDuration::from_hours(7 * 24);
 /// skill covers many questions, so it has to earn its place with more.
 const MIN_ITEM: u32 = 2;
 const MIN_SKILL: u32 = 5;
+
+/// Answers a week needs to count in a progress chart: overall, for a kind
+/// (correct ones, since only those are timed), and for a weak spot, which
+/// comes up less often. Fewer, and one odd answer makes a spike.
+const MIN_WEEK: u32 = 10;
+const MIN_WEEK_KIND: u32 = 5;
+const MIN_WEEK_WEAK: u32 = 3;
 
 /// Most weak spots to list, and most hard questions for each kind.
 const WEAK_SPOTS: usize = 100;
@@ -50,6 +57,8 @@ pub struct Report {
     /// The average struggle, which every skill is measured against.
     pub overall: f64,
     pub speed: Speed,
+    /// Effort each week over everything, against `overall`.
+    pub progress: Vec<Week>,
     pub activity: BTreeMap<Date, u32>,
     /// Weakest first.
     pub weak: Vec<WeakSpot>,
@@ -66,6 +75,8 @@ pub struct KindReport {
     pub hardest: Vec<(Problem, Skill)>,
     /// How its single-digit steps have gone, for kinds built on them.
     pub grid: Option<DigitGrid>,
+    /// Median seconds per correct answer each week.
+    pub progress: Vec<Week>,
 }
 
 /// A session and the attempts made in it, as indices into the history.
@@ -97,7 +108,8 @@ impl Report {
                     speed: Speed::of(of_kind.clone(), since),
                     costs: costs.remove(&stats.kind).unwrap_or_default(),
                     hardest: hardest.remove(&stats.kind).unwrap_or_default(),
-                    grid: DigitGrid::of(stats.kind, of_kind, scoring, now),
+                    grid: DigitGrid::of(stats.kind, of_kind.clone(), scoring, now),
+                    progress: weekly_seconds(of_kind, tz, MIN_WEEK_KIND),
                     stats,
                 }
             })
@@ -114,8 +126,9 @@ impl Report {
             trend: trend(&history.sessions, fingerprint),
             overall: model.overall(),
             speed: Speed::of(attempts, since),
+            progress: weekly_effort(attempts, &model, tz, MIN_WEEK),
             activity: activity(attempts, tz),
-            weak: weak_spots(attempts, &model, WEAK_SPOTS),
+            weak: weak_spots(attempts, &model, tz, WEAK_SPOTS),
         }
     }
 
@@ -475,6 +488,8 @@ pub struct WeakSpot {
     pub correct: u32,
     /// Over correct answers, in milliseconds.
     pub median_ms: f64,
+    /// Effort each week, against the overall average.
+    pub progress: Vec<Week>,
 }
 
 impl WeakSpot {
@@ -486,7 +501,12 @@ impl WeakSpot {
 /// The `n` questions and skills that are the most struggle, weakest
 /// first. Only those above the average count, and only once seen often
 /// enough to mean something.
-pub fn weak_spots(attempts: &[Attempt], model: &SkillModel, n: usize) -> Vec<WeakSpot> {
+pub fn weak_spots(
+    attempts: &[Attempt],
+    model: &SkillModel,
+    tz: &TimeZone,
+    n: usize,
+) -> Vec<WeakSpot> {
     let overall = model.overall();
     let mut weak: Vec<(Feature, Skill)> = model
         .features()
@@ -516,12 +536,100 @@ pub fn weak_spots(attempts: &[Attempt], model: &SkillModel, n: usize) -> Vec<Wea
     }
     weak.into_iter()
         .zip(found)
-        .map(|((feature, skill), (attempts, mut times))| WeakSpot {
+        .map(|((feature, skill), (indices, mut times))| WeakSpot {
             feature,
             skill,
-            attempts,
+            progress: weekly_effort(
+                indices.iter().map(|&i| &attempts[i]),
+                model,
+                tz,
+                MIN_WEEK_WEAK,
+            ),
+            attempts: indices,
             correct: times.len() as u32,
             median_ms: median(&mut times),
+        })
+        .collect()
+}
+
+/// One week's worth of something, Monday to Sunday in local time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Week {
+    /// The Monday it starts on.
+    pub monday: Date,
+    pub value: f64,
+    /// The answers it is worked out from.
+    pub count: u32,
+    /// The share of those answers that were right.
+    pub accuracy: f64,
+}
+
+/// The Monday of the week `ts` falls in, in `tz`.
+fn monday(ts: Timestamp, tz: &TimeZone) -> Date {
+    let day = ts.to_zoned(tz.clone()).date();
+    day - i64::from(day.weekday().to_monday_zero_offset()).days()
+}
+
+/// Attempts grouped by week, oldest first.
+fn by_week<'a>(
+    attempts: impl IntoIterator<Item = &'a Attempt>,
+    tz: &TimeZone,
+) -> BTreeMap<Date, Vec<&'a Attempt>> {
+    let mut weeks: BTreeMap<Date, Vec<&Attempt>> = BTreeMap::new();
+    for a in attempts {
+        weeks.entry(monday(a.ts, tz)).or_default().push(a);
+    }
+    weeks
+}
+
+fn accuracy(attempts: &[&Attempt]) -> f64 {
+    let correct = attempts.iter().filter(|a| a.correct).count();
+    correct as f64 / attempts.len().max(1) as f64
+}
+
+/// The median seconds per correct answer each week, for weeks with at
+/// least `min` correct answers.
+pub fn weekly_seconds<'a>(
+    attempts: impl IntoIterator<Item = &'a Attempt>,
+    tz: &TimeZone,
+    min: u32,
+) -> Vec<Week> {
+    by_week(attempts, tz)
+        .into_iter()
+        .filter_map(|(monday, week)| {
+            let mut times: Vec<u64> = week.iter().filter(|a| a.correct).map(|a| a.ms).collect();
+            (times.len() as u32 >= min).then(|| Week {
+                monday,
+                value: median(&mut times) / 1000.0,
+                count: times.len() as u32,
+                accuracy: accuracy(&week),
+            })
+        })
+        .collect()
+}
+
+/// How much effort answers took each week, as a multiple of the average
+/// over everything, the same measure as a weak spot's: 1 is average,
+/// and falling means getting easier. Weeks with fewer than `min`
+/// answers are left out.
+pub fn weekly_effort<'a>(
+    attempts: impl IntoIterator<Item = &'a Attempt>,
+    model: &SkillModel,
+    tz: &TimeZone,
+    min: u32,
+) -> Vec<Week> {
+    let overall = model.overall();
+    by_week(attempts, tz)
+        .into_iter()
+        .filter(|(_, week)| week.len() as u32 >= min)
+        .map(|(monday, week)| {
+            let mean = week.iter().map(|a| model.struggle(a)).sum::<f64>() / week.len() as f64;
+            Week {
+                monday,
+                value: (mean - overall).exp(),
+                count: week.len() as u32,
+                accuracy: accuracy(&week),
+            }
         })
         .collect()
 }
@@ -635,6 +743,69 @@ mod tests {
         // Everything is recent when the week starts at the dawn of time.
         let stats = by_kind(&attempts, Timestamp::MIN);
         assert_eq!(stats[0].recent_median_ms, Some(2000.0));
+    }
+
+    fn at(problem: Problem, ts: &str, ms: u64, correct: bool) -> Attempt {
+        Attempt {
+            ts: ts.parse().unwrap(),
+            ..attempt(problem, ms, correct)
+        }
+    }
+
+    #[test]
+    fn weeks_start_on_monday_in_local_time() {
+        let tz = TimeZone::get("America/New_York").unwrap();
+        // Sunday 23:30 in New York is already Monday in UTC.
+        let sunday_night = "2026-11-16T04:30:00Z".parse().unwrap();
+        assert_eq!(monday(sunday_night, &tz), "2026-11-09".parse().unwrap());
+        assert_eq!(
+            monday(sunday_night, &TimeZone::UTC),
+            "2026-11-16".parse().unwrap()
+        );
+    }
+
+    #[test]
+    fn weekly_seconds_take_the_median_of_correct_answers() {
+        let attempts = [
+            // Monday 9 November: two right, one wrong.
+            at(add(1, 2), "2026-11-09T10:00:00Z", 1000, true),
+            at(add(1, 3), "2026-11-11T10:00:00Z", 3000, true),
+            at(add(1, 4), "2026-11-15T10:00:00Z", 9000, false),
+            // The next week: one right, too few to count.
+            at(add(1, 5), "2026-11-16T10:00:00Z", 500, true),
+        ];
+        let weeks = weekly_seconds(&attempts, &TimeZone::UTC, 2);
+        assert_eq!(
+            weeks,
+            [Week {
+                monday: "2026-11-09".parse().unwrap(),
+                value: 2.0,
+                count: 2,
+                accuracy: 2.0 / 3.0,
+            }]
+        );
+    }
+
+    #[test]
+    fn weekly_effort_falls_as_answers_speed_up() {
+        // The same question, slower in the first week than the second.
+        let attempts: Vec<Attempt> = (0..6)
+            .map(|i| {
+                let (ts, ms) = if i < 3 {
+                    ("2026-11-02T10:00:00Z", 4000)
+                } else {
+                    ("2026-11-09T10:00:00Z", 1000)
+                };
+                at(add(7, 8), ts, ms, true)
+            })
+            .collect();
+        let model = SkillModel::build(&attempts, &Scoring::default(), Timestamp::MAX);
+        let weeks = weekly_effort(&attempts, &model, &TimeZone::UTC, 3);
+        assert_eq!(weeks.len(), 2);
+        assert!(weeks[0].value > 1.0 && weeks[1].value < 1.0, "{weeks:?}");
+        // Four times as slow is four times the effort.
+        assert!((weeks[0].value / weeks[1].value - 4.0).abs() < 1e-9);
+        assert_eq!(weekly_effort(&attempts, &model, &TimeZone::UTC, 4), []);
     }
 
     #[test]
@@ -848,7 +1019,7 @@ mod tests {
             }
         }
         let model = SkillModel::build(&attempts, &Scoring::default(), now());
-        let weak = weak_spots(&attempts, &model, 100);
+        let weak = weak_spots(&attempts, &model, &TimeZone::UTC, 100);
         let names: Vec<String> = weak.iter().map(|w| w.feature.to_string()).collect();
         // The skill leads; the facts it drags down and the one slow
         // question follow.
@@ -875,7 +1046,7 @@ mod tests {
             .find(|w| w.feature.to_string() == "6 × 8")
             .unwrap();
         assert!((six_eights.accuracy() - 2.0 / 3.0).abs() < 1e-9);
-        assert_eq!(weak_spots(&attempts, &model, 1).len(), 1);
+        assert_eq!(weak_spots(&attempts, &model, &TimeZone::UTC, 1).len(), 1);
     }
 
     #[test]

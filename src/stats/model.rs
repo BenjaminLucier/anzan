@@ -209,18 +209,24 @@ impl SkillModel {
     /// times stay as they were when the model was built.
     pub fn observe(&mut self, a: &Attempt) {
         let kind = a.problem.kind();
-        // An attempt with nothing to compare against is typical.
-        let baseline = self
-            .baselines
-            .usual(&a.problem, a.submit)
-            .unwrap_or(a.ms as f64);
-        let score = struggle(a, baseline, &self.scoring);
+        let score = self.struggle(a);
         let weight = recency(a.ts, self.now, self.scoring.half_life);
         self.all.add(score, weight);
         self.kinds.entry(kind).or_default().add(score, weight);
         for feature in features(&a.problem) {
             self.features.entry(feature).or_default().add(score, weight);
         }
+    }
+
+    /// How much of a struggle `a` was, against the usual times this model
+    /// was built with. An attempt with nothing to compare against is
+    /// typical.
+    pub fn struggle(&self, a: &Attempt) -> f64 {
+        let baseline = self
+            .baselines
+            .usual(&a.problem, a.submit)
+            .unwrap_or(a.ms as f64);
+        struggle(a, baseline, &self.scoring)
     }
 
     /// The average struggle over everything.
