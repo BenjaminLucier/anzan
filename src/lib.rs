@@ -5,4 +5,5 @@ pub mod cli;
 pub mod config;
 pub mod generate;
 pub mod problem;
+pub mod store;
 pub mod ui;

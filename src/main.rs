@@ -2,12 +2,14 @@ use std::{fs, path::Path, time::Instant};
 
 use anyhow::{Context, Result, bail};
 use anzan::{
-    app::App,
+    app::{App, Record},
     cli::{Cli, Command, ConfigCommand},
     config::{self, Config},
+    store::{self, Store},
     ui,
 };
 use clap::Parser;
+use jiff::Timestamp;
 use ratatui::{
     DefaultTerminal,
     crossterm::event::{self, Event},
@@ -28,20 +30,23 @@ fn main() -> Result<()> {
 }
 
 fn practice(config: Config) -> Result<()> {
+    let store = Store::new(store::data_dir()?);
     let app = App::new(
         config.problems,
         config.session.duration(),
         rand::make_rng(),
         Instant::now(),
+        Timestamp::now(),
     );
-    ratatui::run(|terminal| run(terminal, app))?;
-    Ok(())
+    ratatui::run(|terminal| run(terminal, app, &store))
 }
 
 /// Redraws after every key, and on each whole second while the clock runs.
-fn run(terminal: &mut DefaultTerminal, mut app: App) -> std::io::Result<()> {
+/// Saves whatever the app records as soon as it is recorded.
+fn run(terminal: &mut DefaultTerminal, mut app: App, store: &Store) -> Result<()> {
     while !app.quit {
         app.tick(Instant::now());
+        save(&mut app, store)?;
         terminal.draw(|frame| ui::render(&app, frame))?;
         let ready = match app.until_next_tick() {
             Some(timeout) => event::poll(timeout)?,
@@ -49,6 +54,16 @@ fn run(terminal: &mut DefaultTerminal, mut app: App) -> std::io::Result<()> {
         };
         if ready && let Event::Key(key) = event::read()? {
             app.handle_key(key, Instant::now());
+        }
+    }
+    save(&mut app, store)
+}
+
+fn save(app: &mut App, store: &Store) -> Result<()> {
+    for record in app.drain_records() {
+        match record {
+            Record::Attempt(attempt) => store.append_attempt(&attempt)?,
+            Record::Session(session) => store.append_session(&session)?,
         }
     }
     Ok(())

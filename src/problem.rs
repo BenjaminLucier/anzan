@@ -47,8 +47,12 @@ impl FromStr for Op {
 ///
 /// Operands are stored as numbers rather than as display text. Statistics
 /// derive features like carries and digit pairs from them later.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// In stored history the operation is called `kind`, which leaves room for
+/// problems that are not arithmetic.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Problem {
+    #[serde(rename = "kind")]
     pub op: Op,
     pub lhs: i64,
     pub rhs: i64,
