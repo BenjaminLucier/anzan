@@ -3,16 +3,20 @@
 //! Styles use only modifiers (bold, dim), never colours, so the terminal's
 //! own theme shows through.
 
+mod bitmap;
+mod font;
+
 use std::time::Duration;
 
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Position, Rect},
+    layout::{Constraint, Flex, Layout, Margin, Position, Rect, Size},
     style::{Style, Stylize},
     text::{Line, Text},
     widgets::Block,
 };
 
+use self::bitmap::BigText;
 use crate::app::{App, MAX_INPUT, Screen};
 
 /// Width of the answer box: the longest input, the cursor after it, one
@@ -38,13 +42,26 @@ fn render_top_bar(app: &App, frame: &mut Frame, area: Rect) {
     frame.render_widget(quit, area);
 }
 
+/// The question as large as fits, with the answer box beneath it.
 fn render_practice(app: &App, frame: &mut Frame, area: Rect) {
-    let [question, input] = Layout::vertical([Constraint::Length(1), Constraint::Length(3)])
-        .flex(Flex::Center)
-        .spacing(1)
-        .areas(area);
-    let text = Line::from(app.problem.to_string()).bold().centered();
-    frame.render_widget(text, question);
+    const INPUT_HEIGHT: u16 = 3;
+    const SPACING: u16 = 1;
+
+    let text = app.problem.to_string();
+    let question = BigText::new(&text);
+    let room = area.inner(Margin::new(2, 1));
+    let room = Size::new(
+        room.width,
+        room.height.saturating_sub(INPUT_HEIGHT + SPACING),
+    );
+    let [question_area, input] = Layout::vertical([
+        Constraint::Length(question.height(room)),
+        Constraint::Length(INPUT_HEIGHT),
+    ])
+    .flex(Flex::Center)
+    .spacing(SPACING)
+    .areas(area);
+    frame.render_widget(&question, question_area.inner(Margin::new(2, 0)));
     let input = input.centered_horizontally(Constraint::Length(INPUT_WIDTH));
     render_input(app, frame, input);
 }

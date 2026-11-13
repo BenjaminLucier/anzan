@@ -1,0 +1,231 @@
+//! Monochrome bitmaps, and a widget that draws one as large as fits.
+//!
+//! A terminal has no font sizes, so big text is drawn out of block
+//! characters. Terminal cells are about twice as tall as they are wide,
+//! which gives three useful scales:
+//!
+//! - `Large`: each pixel is two cells side by side, `██`, so pixels are
+//!   square.
+//! - `Medium`: each pixel is one cell, so pixels are tall and narrow.
+//! - `Small`: each cell holds two pixels, one above the other, using the
+//!   half blocks `▀` and `▄`, so pixels are square again.
+
+use ratatui::{
+    buffer::Buffer,
+    layout::{Rect, Size},
+    text::Line,
+    widgets::Widget,
+};
+
+use super::font;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bitmap {
+    width: usize,
+    height: usize,
+    pixels: Vec<bool>,
+}
+
+impl Bitmap {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self {
+            width,
+            height,
+            pixels: vec![false; width * height],
+        }
+    }
+
+    /// Draws `text` in the bitmap font, or returns `None` if the font lacks
+    /// one of its characters.
+    pub fn text(text: &str) -> Option<Self> {
+        let glyphs: Vec<_> = text.chars().map(font::glyph).collect::<Option<_>>()?;
+        let width = glyphs.iter().map(|g| g[0].len()).sum::<usize>()
+            + font::GAP * glyphs.len().saturating_sub(1);
+        let mut bitmap = Self::new(width, font::HEIGHT);
+        let mut x0 = 0;
+        for rows in glyphs {
+            for (y, row) in rows.iter().enumerate() {
+                for (x, pixel) in row.bytes().enumerate() {
+                    if pixel == b'#' {
+                        bitmap.set(x0 + x, y);
+                    }
+                }
+            }
+            x0 += rows[0].len() + font::GAP;
+        }
+        Some(bitmap)
+    }
+
+    /// Whether the pixel at `(x, y)` is on. Pixels outside are off.
+    pub fn get(&self, x: usize, y: usize) -> bool {
+        x < self.width && y < self.height && self.pixels[y * self.width + x]
+    }
+
+    pub fn set(&mut self, x: usize, y: usize) {
+        self.pixels[y * self.width + x] = true;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scale {
+    Large,
+    Medium,
+    Small,
+}
+
+impl Scale {
+    /// Largest first.
+    const ALL: [Scale; 3] = [Scale::Large, Scale::Medium, Scale::Small];
+
+    /// The cells a bitmap takes up at this scale.
+    fn size(self, bitmap: &Bitmap) -> Size {
+        let (w, h) = (bitmap.width, bitmap.height);
+        let (w, h) = match self {
+            Scale::Large => (2 * w, h),
+            Scale::Medium => (w, h),
+            Scale::Small => (w, h.div_ceil(2)),
+        };
+        Size::new(w as u16, h as u16)
+    }
+}
+
+/// Text drawn in the bitmap font at the largest scale that fits, or as
+/// ordinary text if even the smallest does not.
+pub struct BigText<'a> {
+    text: &'a str,
+    bitmap: Option<Bitmap>,
+}
+
+impl<'a> BigText<'a> {
+    pub fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            bitmap: Bitmap::text(text),
+        }
+    }
+
+    /// The scale it would be drawn at in `area`, and the cells it would
+    /// take up. `None` means it would be drawn as ordinary text.
+    pub fn fit(&self, area: Size) -> Option<(Scale, Size)> {
+        let bitmap = self.bitmap.as_ref()?;
+        Scale::ALL
+            .into_iter()
+            .map(|scale| (scale, scale.size(bitmap)))
+            .find(|(_, size)| size.width <= area.width && size.height <= area.height)
+    }
+
+    /// Rows needed in `area`.
+    pub fn height(&self, area: Size) -> u16 {
+        self.fit(area).map_or(1, |(_, size)| size.height)
+    }
+}
+
+impl Widget for &BigText<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let (Some(bitmap), Some((scale, size))) = (&self.bitmap, self.fit(area.as_size())) else {
+            let line = Line::from(self.text).centered();
+            line.render(
+                area.centered_vertically(ratatui::layout::Constraint::Length(1)),
+                buf,
+            );
+            return;
+        };
+        let x0 = area.x + (area.width - size.width) / 2;
+        let y0 = area.y + (area.height - size.height) / 2;
+        for row in 0..size.height {
+            for col in 0..size.width {
+                let (x, y) = (usize::from(col), usize::from(row));
+                let symbol = match scale {
+                    Scale::Large => full(bitmap.get(x / 2, y)),
+                    Scale::Medium => full(bitmap.get(x, y)),
+                    Scale::Small => half(bitmap.get(x, 2 * y), bitmap.get(x, 2 * y + 1)),
+                };
+                if let Some(symbol) = symbol {
+                    buf[(x0 + col, y0 + row)].set_symbol(symbol);
+                }
+            }
+        }
+    }
+}
+
+fn full(on: bool) -> Option<&'static str> {
+    on.then_some("█")
+}
+
+fn half(top: bool, bottom: bool) -> Option<&'static str> {
+    match (top, bottom) {
+        (true, true) => Some("█"),
+        (true, false) => Some("▀"),
+        (false, true) => Some("▄"),
+        (false, false) => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn render(text: &str, width: u16, height: u16) -> Vec<String> {
+        let area = Rect::new(0, 0, width, height);
+        let mut buf = Buffer::empty(area);
+        (&BigText::new(text)).render(area, &mut buf);
+        (0..height)
+            .map(|y| (0..width).map(|x| buf[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn text_width_includes_gaps() {
+        let bitmap = Bitmap::text("12").unwrap();
+        assert_eq!((bitmap.width, bitmap.height), (11, 7));
+    }
+
+    #[test]
+    fn unknown_character_means_no_bitmap() {
+        assert!(Bitmap::text("1a").is_none());
+    }
+
+    #[test]
+    fn picks_the_largest_scale_that_fits() {
+        let big = BigText::new("1");
+        let fit = |w, h| big.fit(Size::new(w, h)).map(|(scale, _)| scale);
+        assert_eq!(fit(10, 7), Some(Scale::Large));
+        assert_eq!(fit(9, 7), Some(Scale::Medium));
+        assert_eq!(fit(10, 6), Some(Scale::Small));
+        assert_eq!(fit(4, 4), None);
+    }
+
+    #[test]
+    fn draws_large() {
+        assert_eq!(
+            render("1", 10, 7),
+            [
+                "    ██    ",
+                "  ████    ",
+                "    ██    ",
+                "    ██    ",
+                "    ██    ",
+                "    ██    ",
+                "  ██████  ",
+            ]
+        );
+    }
+
+    #[test]
+    fn draws_small_with_half_blocks() {
+        assert_eq!(render("1", 5, 4), [" ▄█  ", "  █  ", "  █  ", " ▀▀▀ "]);
+    }
+
+    #[test]
+    fn centres_in_a_larger_area() {
+        let rows = render("1", 7, 6);
+        // Medium is too tall for 6 rows, so Small (4 rows) is centred.
+        assert_eq!(rows[0], "       ");
+        assert_eq!(rows[1], "  ▄█   ");
+    }
+
+    #[test]
+    fn falls_back_to_plain_text() {
+        assert_eq!(render("12", 4, 1), [" 12 "]);
+    }
+}
