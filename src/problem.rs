@@ -15,11 +15,26 @@ pub enum Kind {
     Sub,
     Mul,
     Div,
+    Square,
+    Cube,
+    PowerOfTwo,
 }
 
 impl Kind {
     /// Every kind, in the order menus list them.
-    pub const ALL: &[Kind] = &[Kind::Add, Kind::Sub, Kind::Mul, Kind::Div];
+    pub const ALL: &[Kind] = &[
+        Kind::Add,
+        Kind::Sub,
+        Kind::Mul,
+        Kind::Div,
+        Kind::Square,
+        Kind::Cube,
+        Kind::PowerOfTwo,
+    ];
+
+    /// The kinds a session asks unless told otherwise: the four basic
+    /// operations.
+    pub const CORE: &[Kind] = &[Kind::Add, Kind::Sub, Kind::Mul, Kind::Div];
 
     /// The name used in config files, history and on the command line.
     pub fn name(self) -> &'static str {
@@ -28,6 +43,9 @@ impl Kind {
             Kind::Sub => "sub",
             Kind::Mul => "mul",
             Kind::Div => "div",
+            Kind::Square => "square",
+            Kind::Cube => "cube",
+            Kind::PowerOfTwo => "power_of_two",
         }
     }
 
@@ -38,6 +56,9 @@ impl Kind {
             Kind::Sub => "Subtraction",
             Kind::Mul => "Multiplication",
             Kind::Div => "Division",
+            Kind::Square => "Squares",
+            Kind::Cube => "Cubes",
+            Kind::PowerOfTwo => "Powers of 2",
         }
     }
 }
@@ -99,6 +120,9 @@ pub enum Problem {
     Sub { lhs: i64, rhs: i64 },
     Mul { lhs: i64, rhs: i64 },
     Div { lhs: i64, rhs: i64 },
+    Square { base: i64 },
+    Cube { base: i64 },
+    PowerOfTwo { exp: i64 },
 }
 
 impl Problem {
@@ -117,6 +141,9 @@ impl Problem {
             Problem::Sub { .. } => Kind::Sub,
             Problem::Mul { .. } => Kind::Mul,
             Problem::Div { .. } => Kind::Div,
+            Problem::Square { .. } => Kind::Square,
+            Problem::Cube { .. } => Kind::Cube,
+            Problem::PowerOfTwo { .. } => Kind::PowerOfTwo,
         }
     }
 
@@ -127,14 +154,23 @@ impl Problem {
             Problem::Sub { lhs, rhs } => Some((Op::Sub, lhs, rhs)),
             Problem::Mul { lhs, rhs } => Some((Op::Mul, lhs, rhs)),
             Problem::Div { lhs, rhs } => Some((Op::Div, lhs, rhs)),
+            _ => None,
         }
     }
 
     /// What counts as a correct answer.
     pub fn answer(&self) -> Answer {
-        match self.arithmetic() {
-            Some((op, lhs, rhs)) => Answer::int(op.apply(lhs, rhs)),
-            None => unreachable!("every problem is arithmetic so far"),
+        match *self {
+            Problem::Add { .. }
+            | Problem::Sub { .. }
+            | Problem::Mul { .. }
+            | Problem::Div { .. } => {
+                let (op, lhs, rhs) = self.arithmetic().expect("arithmetic");
+                Answer::int(op.apply(lhs, rhs))
+            }
+            Problem::Square { base } => Answer::int(base * base),
+            Problem::Cube { base } => Answer::int(base * base * base),
+            Problem::PowerOfTwo { exp } => Answer::int(1 << exp),
         }
     }
 }
@@ -142,9 +178,20 @@ impl Problem {
 impl Problem {
     /// The question in mathematical notation.
     pub fn expr(&self) -> Expr {
-        match self.arithmetic() {
-            Some((op, lhs, rhs)) => Expr::text(format!("{lhs} {} {rhs}", op.symbol())),
-            None => unreachable!("every problem is arithmetic so far"),
+        fn pow(base: i64, exp: i64) -> Expr {
+            Expr::pow(Expr::text(base.to_string()), Expr::text(exp.to_string()))
+        }
+        match *self {
+            Problem::Add { .. }
+            | Problem::Sub { .. }
+            | Problem::Mul { .. }
+            | Problem::Div { .. } => {
+                let (op, lhs, rhs) = self.arithmetic().expect("arithmetic");
+                Expr::text(format!("{lhs} {} {rhs}", op.symbol()))
+            }
+            Problem::Square { base } => pow(base, 2),
+            Problem::Cube { base } => pow(base, 3),
+            Problem::PowerOfTwo { exp } => pow(2, exp),
         }
     }
 }
@@ -186,8 +233,18 @@ mod tests {
     }
 
     #[test]
+    fn powers() {
+        let answer = |p: Problem| p.answer().to_string();
+        assert_eq!(answer(Problem::Square { base: 17 }), "289");
+        assert_eq!(answer(Problem::Cube { base: 12 }), "1728");
+        assert_eq!(answer(Problem::PowerOfTwo { exp: 20 }), "1048576");
+    }
+
+    #[test]
     fn display() {
         assert_eq!(Problem::Sub { lhs: 85, rhs: 38 }.to_string(), "85 − 38");
         assert_eq!(Problem::Div { lhs: 266, rhs: 7 }.to_string(), "266 ÷ 7");
+        assert_eq!(Problem::Square { base: 17 }.to_string(), "17²");
+        assert_eq!(Problem::PowerOfTwo { exp: 16 }.to_string(), "2¹⁶");
     }
 }

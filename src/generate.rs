@@ -1,13 +1,17 @@
 //! Generators that produce problems at random.
 
 mod arithmetic;
+mod powers;
 
 use std::fmt;
 
 use rand::{Rng, RngExt, seq::IndexedRandom};
 use serde::{Deserialize, Serialize};
 
-pub use arithmetic::{AddSub, MulDiv};
+pub use self::{
+    arithmetic::{AddSub, MulDiv},
+    powers::Powers,
+};
 
 use crate::problem::{Kind, Problem};
 
@@ -89,14 +93,16 @@ pub struct Settings {
     pub kinds: Vec<Kind>,
     pub add_sub: AddSub,
     pub mul_div: MulDiv,
+    pub powers: Powers,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            kinds: Kind::ALL.to_vec(),
+            kinds: Kind::CORE.to_vec(),
             add_sub: AddSub::default(),
             mul_div: MulDiv::default(),
+            powers: Powers::default(),
         }
     }
 }
@@ -110,7 +116,7 @@ impl Settings {
         if self.mul_div.lhs.contains(0) && self.kinds.contains(&Kind::Div) {
             return Err("`mul_div.lhs` must not contain 0, since it is the divisor".into());
         }
-        Ok(())
+        self.powers.validate()
     }
 
     /// # Panics
@@ -118,11 +124,19 @@ impl Settings {
     /// Panics if the settings do not pass `validate`.
     pub fn generate(&self, rng: &mut impl Rng) -> Problem {
         let kind = *self.kinds.choose(rng).expect("at least one kind");
+        self.generate_kind(kind, rng)
+    }
+
+    /// A problem of the given kind, whether or not it is enabled.
+    pub fn generate_kind(&self, kind: Kind, rng: &mut impl Rng) -> Problem {
         match kind {
             Kind::Add => self.add_sub.add(rng),
             Kind::Sub => self.add_sub.sub(rng),
             Kind::Mul => self.mul_div.mul(rng),
             Kind::Div => self.mul_div.div(rng),
+            Kind::Square => self.powers.square(rng),
+            Kind::Cube => self.powers.cube(rng),
+            Kind::PowerOfTwo => self.powers.power_of_two(rng),
         }
     }
 }
@@ -170,9 +184,35 @@ mod tests {
     }
 
     #[test]
+    fn defaults_to_the_core_kinds() {
+        let core: HashSet<_> = Kind::CORE.iter().copied().collect();
+        assert_eq!(kinds_seen(&Settings::default()), core);
+    }
+
+    #[test]
     fn mixes_every_kind() {
+        let settings = Settings {
+            kinds: Kind::ALL.to_vec(),
+            ..Settings::default()
+        };
         let all: HashSet<_> = Kind::ALL.iter().copied().collect();
-        assert_eq!(kinds_seen(&Settings::default()), all);
+        assert_eq!(kinds_seen(&settings), all);
+    }
+
+    /// Every kind's generator, with default settings, produces problems
+    /// whose own answer accepts the answer's display.
+    #[test]
+    fn every_kind_answers_itself() {
+        let settings = Settings::default();
+        let mut rng = StdRng::seed_from_u64(0);
+        for &kind in Kind::ALL {
+            for _ in 0..200 {
+                let p = settings.generate_kind(kind, &mut rng);
+                assert_eq!(p.kind(), kind);
+                let answer = p.answer();
+                assert!(answer.check(&answer.to_string()), "{p} = {answer}");
+            }
+        }
     }
 
     #[test]

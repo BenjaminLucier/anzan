@@ -15,8 +15,9 @@ duration = 120
 submit = "auto"
 
 [problems]
-# Kinds of problem to ask, chosen at random with equal odds.
-# Any of: "add", "sub", "mul", "div".
+# Kinds of problem to ask, chosen at random with equal odds. Any of:
+#   "add", "sub", "mul", "div"          the four basic operations
+#   "square", "cube", "power_of_two"    powers to know by heart
 kinds = ["add", "sub", "mul", "div"]
 
 [problems.add_sub]
@@ -30,3 +31,9 @@ rhs = [2, 100]
 # (lhs × rhs) ÷ lhs, so it always divides exactly. lhs must not include 0.
 lhs = [2, 12]
 rhs = [2, 100]
+
+[problems.powers]
+# Numbers to square, numbers to cube, and exponents of 2.
+squares = [2, 30]
+cubes = [2, 12]
+twos = [1, 20]
