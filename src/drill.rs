@@ -270,13 +270,11 @@ impl Drill {
             0 => Timestamp::MIN,
             days => now - SignedDuration::from_hours(24 * i64::from(days)),
         };
-        for a in history.attempts.iter().rev() {
-            if a.ts < since {
-                break;
-            }
-            if settings.kinds.contains(&a.problem.kind()) {
-                drill.remember(&a.problem);
-            }
+        // Not assuming the history is in order: a clock set back between
+        // sessions would otherwise hide everything before it.
+        let recent = history.attempts.iter().filter(|a| a.ts >= since);
+        for a in recent.filter(|a| settings.kinds.contains(&a.problem.kind())) {
+            drill.remember(&a.problem);
         }
         drill
     }
@@ -300,15 +298,6 @@ impl Drill {
         }
     }
 
-    /// `options` with the model's score for each.
-    fn scored<T: Copy>(
-        &self,
-        options: impl IntoIterator<Item = T>,
-        score: impl Fn(T) -> f64,
-    ) -> Vec<(T, f64)> {
-        options.into_iter().map(|t| (t, score(t))).collect()
-    }
-
     pub fn plan(&self) -> Plan {
         self.plan
     }
@@ -325,9 +314,11 @@ impl Drill {
         match self.plan.source {
             Source::Fresh => fresh(rng),
             Source::Similar => {
-                let targets = self.scored(self.targets.iter().copied(), |f| {
-                    self.model.feature(&f).score
-                });
+                let targets: Vec<_> = self
+                    .targets
+                    .iter()
+                    .map(|&f| (f, self.model.feature(&f).score))
+                    .collect();
                 let Some(target) = self.pick(&targets, rng) else {
                     return fresh(rng);
                 };
@@ -337,8 +328,12 @@ impl Drill {
                     .unwrap_or_else(|| fresh(rng))
             }
             Source::Replay => {
-                let pool = self.items.iter().copied().filter(|p| Some(*p) != previous);
-                let pool = self.scored(pool, |p| self.model.feature(&Feature::Item(p)).score);
+                let pool: Vec<_> = self
+                    .items
+                    .iter()
+                    .filter(|&&p| Some(p) != previous)
+                    .map(|&p| (p, self.model.feature(&Feature::Item(p)).score))
+                    .collect();
                 self.pick(&pool, rng).unwrap_or_else(|| fresh(rng))
             }
         }
@@ -393,7 +388,7 @@ mod tests {
     use rand::{SeedableRng, rngs::StdRng};
 
     use super::*;
-    use crate::{config::Submit, problem::Kind};
+    use crate::{config::Submit, problem::Kind, stats::features::Trick};
 
     fn now() -> Timestamp {
         "2026-11-13T12:00:00Z".parse().unwrap()
@@ -558,6 +553,40 @@ mod tests {
         }
         let d = drill(Mode::Fukushu, &history);
         assert!(d.items.is_empty() && d.targets.is_empty());
+        // One recent attempt counts, even with older ones recorded after
+        // it, as a clock set back would leave them.
+        history.attempts[0].ts = now();
+        let d = drill(Mode::Fukushu, &history);
+        assert_eq!(d.items.len(), 1);
+    }
+
+    #[test]
+    fn keiko_drills_a_weak_technique() {
+        // Numbers ending in 8 or 9 are slow; nothing else is.
+        let mut attempts = Vec::new();
+        for a in 2..=9 {
+            for b in 11..=59 {
+                let slow = b % 10 >= 8 && b >= 18;
+                let p = Problem::Mul { lhs: a, rhs: b };
+                attempts.push(attempt(p, if slow { 9000 } else { 2000 }));
+            }
+        }
+        let history = History {
+            attempts,
+            ..History::default()
+        };
+        let near_round = |d: &Drill| {
+            let mut rng = StdRng::seed_from_u64(5);
+            (0..400)
+                .filter(|_| {
+                    let p = d.next(&settings(), &mut rng, None);
+                    crate::stats::features::tricks(&p).contains(&Trick::MultiplyNearRound)
+                })
+                .count()
+        };
+        let random = near_round(&drill(Mode::Jiyu, &history));
+        let keiko = near_round(&drill(Mode::Keiko, &history));
+        assert!(keiko > 2 * random, "{keiko} vs {random}");
     }
 
     #[test]

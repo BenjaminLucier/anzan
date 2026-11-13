@@ -410,18 +410,22 @@ mod tests {
     }
 
     #[test]
-    fn observing_matches_building() {
-        let attempts: Vec<_> = [(mul(7, 8), 4000), (mul(3, 4), 1000), (mul(7, 8), 3000)]
-            .into_iter()
-            .map(|(p, ms)| attempt(p, ms))
-            .collect();
+    fn observing_adds_to_what_was_built() {
         let s = Scoring::default();
-        let built = SkillModel::build(&attempts, &s, now());
-        let mut grown = SkillModel::build(&attempts[..2], &s, now());
-        grown.observe(&attempts[2]);
-        // Usual times come from the first two only, so scores differ, but
-        // the new attempt is counted.
-        assert_eq!(grown.feature(&Feature::Fact(7, 8)).count, 2);
-        assert_eq!(built.feature(&Feature::Fact(7, 8)).count, 2);
+        let quick: Vec<_> = (0..10).map(|_| attempt(mul(7, 8), 1000)).collect();
+        let mut model = SkillModel::build(&quick, &s, now());
+        let fact = Feature::Fact(7, 8);
+        let before = model.feature(&fact);
+        assert_eq!(before.count, 10);
+        // A slow answer now, judged against the usual time from before.
+        model.observe(&attempt(mul(7, 8), 8000));
+        let after = model.feature(&fact);
+        assert_eq!(after.count, 11);
+        assert!(after.score > before.score + 0.1, "{before:?} → {after:?}");
+        // The usual time itself stays as it was when the model was built.
+        assert_eq!(
+            model.baselines.median(Kind::Mul, Submit::Auto),
+            Some(1000.0)
+        );
     }
 }

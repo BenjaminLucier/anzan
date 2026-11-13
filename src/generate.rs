@@ -251,6 +251,59 @@ mod tests {
         assert!(overflowing.validate().is_err());
     }
 
+    /// One setting just past each limit `validate` enforces. The error
+    /// names the setting, so the reader of a config knows where to look.
+    #[test]
+    fn validate_names_the_setting_at_fault() {
+        // A function, not a closure, so the cases below capture nothing.
+        const fn r(lo: i64, hi: i64) -> Range {
+            Range::new(lo, hi)
+        }
+        type Break = fn(&mut Settings);
+        let cases: [(&str, Break); 22] = [
+            ("add_sub", |s| s.add_sub.lhs = r(0, 1_000_000_001)),
+            ("long_mul", |s| s.long_mul.rhs = r(-1_000_000_001, 0)),
+            ("powers", |s| s.powers.cubes = r(2, 2_000_001)),
+            ("powers.twos", |s| s.powers.twos = r(-1, 4)),
+            ("powers.roots", |s| s.powers.roots = r(1, 50)),
+            ("number_theory.divisors", |s| {
+                s.number_theory.divisors = r(0, 9)
+            }),
+            ("number_theory.primes", |s| {
+                s.number_theory.primes = r(-5, 9)
+            }),
+            ("number_theory.factorize", |s| {
+                s.number_theory.factorize = r(3, 9)
+            }),
+            ("number_theory", |s| {
+                s.number_theory.dividends = r(1, 1_000_000_001)
+            }),
+            ("fractions.denominators", |s| {
+                s.fractions.denominators = r(1, 20)
+            }),
+            ("fractions.denominators", |s| {
+                s.fractions.denominators = r(6, 7)
+            }),
+            ("percent.amounts", |s| s.percent.amounts = r(0, 200)),
+            ("percent.changes", |s| s.percent.changes = r(-100, 50)),
+            ("percent.changes", |s| s.percent.changes = r(-4, 4)),
+            ("percent.rates", |s| s.percent.rates = r(-1, 99)),
+            ("finance.bps", |s| s.finance.bps = r(0, 500)),
+            ("finance.rates", |s| s.finance.rates = r(1, 101)),
+            ("finance.years", |s| s.finance.years = r(0, 5)),
+            ("finance.doubling", |s| s.finance.doubling = r(0, 24)),
+            ("probability.flips", |s| s.probability.flips = r(2, 11)),
+            ("probability.odds", |s| s.probability.odds = r(1, 6)),
+            ("probability.stakes", |s| s.probability.stakes = r(2, 5)),
+        ];
+        for (name, break_it) in cases {
+            let mut settings = Settings::default();
+            break_it(&mut settings);
+            let err = settings.validate().expect_err(name);
+            assert!(err.contains(name), "{name}: {err}");
+        }
+    }
+
     #[test]
     fn defaults_to_the_core_kinds() {
         let core: HashSet<_> = Kind::CORE.iter().copied().collect();
