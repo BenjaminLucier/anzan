@@ -173,7 +173,7 @@ pub fn hardest(model: &SkillModel, min_count: u32, n: usize) -> Vec<(Feature, Sk
 }
 
 /// How much longer correct answers take, as a multiple of the usual time
-/// for their kind, for each number of carries (in additions) or borrows
+/// for problems of their kind and size, for each number of carries (in additions) or borrows
 /// (in subtractions).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cost {
@@ -191,7 +191,7 @@ pub fn carry_costs(attempts: &[Attempt], baselines: &Baselines, op: Op) -> Vec<C
             Some((Op::Sub, l, r)) if op == Op::Sub => borrows(l, r),
             _ => continue,
         };
-        let Some(base) = baselines.median(a.problem.kind(), a.submit) else {
+        let Some(base) = baselines.usual(&a.problem, a.submit) else {
             continue;
         };
         let (count, logs) = groups.entry(steps).or_default();

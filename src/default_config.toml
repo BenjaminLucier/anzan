@@ -126,7 +126,8 @@ window = 60
 [scoring]
 # How the dashboard and the practice modes judge weak spots. Each attempt
 # scores the log of how much slower it was than your usual time for that
-# kind of problem (0 is typical, 0.7 is twice as long), plus penalties.
+# kind and size of problem (0 is typical, 0.7 is twice as long), plus
+# penalties.
 # History is rescored whenever this changes.
 wrong = 1.5       # added for a wrong answer
 skip = 2.0        # added for a skip

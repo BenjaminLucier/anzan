@@ -108,9 +108,12 @@ superscripts, fractions stacked over a bar and roots under an overline.
 
 Every mode asks the same kinds of problem; they differ in which ones. All
 but Jiyū learn from your history: each attempt is scored by how much slower
-it was than your usual time for that kind of problem, with extra for
-misses, skips and backspaces. Those scores are averaged over skills, such
-as a times-table fact, a number of carries, or a single question.
+it was than your usual time for that kind and size of problem, so 12 × 97
+is compared with other two-digit products rather than with 2 × 3, with
+extra for misses, skips and backspaces. Those scores are averaged over
+skills: a single question, a times-table fact, multiplying by 7, a number
+of carries, or a question with a shortcut to spot, such as 47 × 53
+(50² − 3²) or 16 × 35 (8 × 70).
 
 | Mode               | Meaning     | Problems                                                 |
 |--------------------|-------------|----------------------------------------------------------|

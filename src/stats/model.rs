@@ -1,8 +1,8 @@
 //! How much each skill is a struggle, learned from history.
 //!
 //! Every attempt gets a struggle score: the log of how much slower it was
-//! than the usual time for its kind, plus penalties for a wrong answer, a
-//! skip or backspaces. 0 is a typical attempt; ln 2 ≈ 0.7 took twice as
+//! than the usual time for problems of its kind and size, plus penalties
+//! for a wrong answer, a skip or backspaces. 0 is a typical attempt; ln 2 ≈ 0.7 took twice as
 //! long. A skill's score is the average over the attempts that exercised
 //! it, with recent attempts counting for more, pulled toward the overall
 //! average when there are few attempts so one slip does not dominate.
@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-use super::features::{Feature, features};
+use super::features::{Feature, Size, features};
 use crate::{
     config::Submit,
     problem::{Kind, Problem},
@@ -65,33 +65,59 @@ impl Scoring {
     }
 }
 
-/// The median time for each kind of problem, and for each way of
-/// submitting unless `by_submit` is off.
+/// The usual time for a correct answer: the median for each kind of
+/// problem, and within a kind for each size of problem, separately for
+/// each way of submitting unless `by_submit` is off.
 #[derive(Debug, Default)]
 pub struct Baselines {
-    medians: HashMap<(Kind, Option<Submit>), f64>,
+    kinds: HashMap<(Kind, Option<Submit>), f64>,
+    sizes: HashMap<(Kind, Option<Submit>, Size), f64>,
     by_submit: bool,
 }
 
+/// Correct answers a size needs before it gets a usual time of its own.
+const MIN_FOR_SIZE: usize = 5;
+
 impl Baselines {
     pub fn build(attempts: &[Attempt], by_submit: bool) -> Self {
-        let mut times: HashMap<_, Vec<u64>> = HashMap::new();
+        let mut kinds: HashMap<_, Vec<u64>> = HashMap::new();
+        let mut sizes: HashMap<_, Vec<u64>> = HashMap::new();
         for a in attempts.iter().filter(|a| a.correct) {
-            let key = (a.problem.kind(), by_submit.then_some(a.submit));
-            times.entry(key).or_default().push(a.ms);
+            let (kind, submit) = (a.problem.kind(), by_submit.then_some(a.submit));
+            kinds.entry((kind, submit)).or_default().push(a.ms);
+            if let Some(size) = Size::of(&a.problem) {
+                sizes.entry((kind, submit, size)).or_default().push(a.ms);
+            }
         }
-        let medians = times
-            .into_iter()
-            .map(|(key, mut ms)| (key, median(&mut ms)))
-            .collect();
-        Self { medians, by_submit }
+        Self {
+            kinds: kinds
+                .into_iter()
+                .map(|(key, mut ms)| (key, median(&mut ms)))
+                .collect(),
+            sizes: sizes
+                .into_iter()
+                .filter(|(_, ms)| ms.len() >= MIN_FOR_SIZE)
+                .map(|(key, mut ms)| (key, median(&mut ms)))
+                .collect(),
+            by_submit,
+        }
     }
 
     /// The usual time in milliseconds for `kind` handed in with `submit`,
     /// if any have been answered correctly.
     pub fn median(&self, kind: Kind, submit: Submit) -> Option<f64> {
         let key = (kind, self.by_submit.then_some(submit));
-        self.medians.get(&key).copied()
+        self.kinds.get(&key).copied()
+    }
+
+    /// The usual time for a problem like `problem`: of its kind and, once
+    /// enough of them have been answered, its size. Without that, 12 × 97
+    /// would always look like a struggle next to 2 × 3.
+    pub fn usual(&self, problem: &Problem, submit: Submit) -> Option<f64> {
+        let (kind, submit_key) = (problem.kind(), self.by_submit.then_some(submit));
+        Size::of(problem)
+            .and_then(|size| self.sizes.get(&(kind, submit_key, size)).copied())
+            .or_else(|| self.median(kind, submit))
     }
 }
 
@@ -171,7 +197,10 @@ impl SkillModel {
     pub fn observe(&mut self, a: &Attempt) {
         let kind = a.problem.kind();
         // An attempt with nothing to compare against is typical.
-        let baseline = self.baselines.median(kind, a.submit).unwrap_or(a.ms as f64);
+        let baseline = self
+            .baselines
+            .usual(&a.problem, a.submit)
+            .unwrap_or(a.ms as f64);
         let score = struggle(a, baseline, &self.scoring);
         let weight = recency(a.ts, self.now, self.scoring.half_life);
         self.all.add(score, weight);
@@ -342,6 +371,27 @@ mod tests {
         assert_eq!(split.median(Kind::Mul, Submit::Enter), Some(3000.0));
         let joint = Baselines::build(&attempts, false);
         assert_eq!(joint.median(Kind::Mul, Submit::Auto), Some(3000.0));
+    }
+
+    #[test]
+    fn usual_times_are_by_size_once_there_are_enough() {
+        let small = |ms| attempt(mul(3, 4), ms);
+        let large = |ms| attempt(mul(12, 97), ms);
+        let mut attempts: Vec<_> = (0..6).map(|_| small(1000)).collect();
+        attempts.extend((0..4).map(|_| large(9000)));
+        let few = Baselines::build(&attempts, true);
+        // Four large ones are too few to stand alone: the kind's median.
+        assert_eq!(few.usual(&mul(12, 97), Submit::Auto), Some(1000.0));
+        assert_eq!(few.usual(&mul(3, 4), Submit::Auto), Some(1000.0));
+        attempts.push(large(9000));
+        let enough = Baselines::build(&attempts, true);
+        assert_eq!(enough.usual(&mul(12, 97), Submit::Auto), Some(9000.0));
+        assert_eq!(enough.usual(&mul(11, 50), Submit::Auto), Some(9000.0));
+        assert_eq!(enough.usual(&mul(3, 4), Submit::Auto), Some(1000.0));
+        // So a large product at its usual pace is no struggle at all.
+        let model = SkillModel::build(&attempts, &Scoring::default(), now());
+        let item = Feature::Item(mul(12, 97));
+        assert!((model.feature(&item).score - model.overall()).abs() < 1e-9);
     }
 
     #[test]
