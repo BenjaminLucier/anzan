@@ -47,25 +47,31 @@ pub fn render(app: &App, frame: &mut Frame) {
     }
 }
 
-/// The name in large kanji, then the settings for the next session.
+/// The name in large kanji, then the settings for the next session. The
+/// settings list scrolls when it has to so that the kanji keep their room,
+/// unless the terminal is too short for both.
 fn render_menu(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
-    let rows: Vec<Line> = Row::all()
+    const CHROME: u16 = 4; // name, a gap, a gap, hints
+    let lines: Vec<Line> = Row::all()
         .enumerate()
         .map(|(i, row)| menu_line(row, config, i == menu.selected))
         .collect();
-    let rows = Text::from(rows);
-    let hints = Line::from("↑↓ choose · ←→ change · Enter start")
-        .dim()
-        .centered();
-
+    // Rows for the small kanji and a gap. The list gives them up only to
+    // keep at least MIN_LIST rows.
+    const TITLE: u16 = 9;
+    const MIN_LIST: u16 = 10;
+    let len = lines.len() as u16;
+    let list_height = len
+        .min(area.height.saturating_sub(CHROME + TITLE))
+        .max(len.min(MIN_LIST))
+        .min(area.height.saturating_sub(CHROME + 1));
     let title = BigText::bitmap(Some(kanji::anzan()), "暗算").scales(Scale::SQUARE);
-    let fixed = 1 + 1 + rows.height() as u16 + 1 + 1;
-    let room = Size::new(area.width, area.height.saturating_sub(fixed + 2));
-    let [title_area, name, _, rows_area, _, hints_area] = Layout::vertical([
+    let room = Size::new(area.width, area.height.saturating_sub(list_height + CHROME));
+    let [title_area, name, _, list_area, _, hints] = Layout::vertical([
         Constraint::Length(title.height(room)),
         Constraint::Length(1),
         Constraint::Length(1),
-        Constraint::Length(rows.height() as u16),
+        Constraint::Length(list_height),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
@@ -74,13 +80,30 @@ fn render_menu(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
 
     frame.render_widget(&title, title_area);
     frame.render_widget(Line::from("anzan · mental math").dim().centered(), name);
-    let rows_area = rows_area.centered_horizontally(Constraint::Length(MENU_WIDTH));
-    frame.render_widget(rows, rows_area);
-    frame.render_widget(hints, hints_area);
+    let offset = scroll_offset(menu.selected, lines.len(), usize::from(list_height));
+    let visible: Vec<Line> = lines
+        .into_iter()
+        .skip(offset)
+        .take(usize::from(list_height))
+        .collect();
+    let list_area = list_area.centered_horizontally(Constraint::Length(MENU_WIDTH));
+    frame.render_widget(Text::from(visible), list_area);
+    let hint = Line::from("↑↓ choose · ←→ change · Enter start")
+        .dim()
+        .centered();
+    frame.render_widget(hint, hints);
+}
+
+/// The first of `len` lines to show in `height` rows so that `selected`
+/// stays in view, centred where possible.
+fn scroll_offset(selected: usize, len: usize, height: usize) -> usize {
+    selected
+        .saturating_sub(height / 2)
+        .min(len.saturating_sub(height))
 }
 
 /// Width of the settings list.
-const MENU_WIDTH: u16 = 32;
+const MENU_WIDTH: u16 = 36;
 
 fn menu_line(row: Row, config: &Config, selected: bool) -> Line<'static> {
     let (label, value) = match row {
@@ -89,17 +112,39 @@ fn menu_line(row: Row, config: &Config, selected: bool) -> Line<'static> {
             format!("◂ {} ▸", clock(config.session.duration())),
         ),
         Row::Submit => ("Submit", format!("◂ {} ▸", config.session.submit.name())),
+        Row::Group(group) => {
+            let on = group
+                .kinds()
+                .filter(|k| config.problems.kinds.contains(k))
+                .count();
+            let mark = match on {
+                0 => "[ ]",
+                n if n == group.kinds().count() => "[x]",
+                _ => "[-]",
+            };
+            (group.label(), mark.to_owned())
+        }
         Row::Kind(kind) => {
             let on = config.problems.kinds.contains(&kind);
             (kind.label(), if on { "[x]" } else { "[ ]" }.to_owned())
         }
     };
+    // Kinds sit indented under their group.
+    let label = match row {
+        Row::Kind(_) => format!("  {label}"),
+        _ => label.to_owned(),
+    };
+    let label = label.as_str();
     let marker = if selected { "› " } else { "  " };
     // Everything here is one cell per character, so counting characters
     // gives the width in cells.
-    let width = usize::from(MENU_WIDTH) - marker.chars().count() - label.len();
+    let width = usize::from(MENU_WIDTH) - marker.chars().count() - label.chars().count();
     let line = Line::from(format!("{marker}{label}{value:>width$}"));
-    if selected { line.bold() } else { line }
+    match (selected, row) {
+        (true, _) => line.bold(),
+        (false, Row::Group(_)) => line.underlined(),
+        (false, _) => line,
+    }
 }
 
 /// The clock in the top left, and the score in the middle.
@@ -219,6 +264,14 @@ fn clock(remaining: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrolling_keeps_the_selection_in_view() {
+        assert_eq!(scroll_offset(0, 30, 10), 0);
+        assert_eq!(scroll_offset(12, 30, 10), 7);
+        assert_eq!(scroll_offset(29, 30, 10), 20);
+        assert_eq!(scroll_offset(5, 8, 10), 0);
+    }
 
     #[test]
     fn clock_rounds_up() {

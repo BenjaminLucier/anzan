@@ -3,7 +3,10 @@
 //! Changes apply to this run of the program only. The config file is
 //! never written.
 
-use crate::{config::Config, problem::Kind};
+use crate::{
+    config::Config,
+    problem::{Group, Kind},
+};
 
 /// Session lengths offered, in seconds.
 const DURATIONS: [u64; 7] = [30, 60, 90, 120, 180, 300, 600];
@@ -12,19 +15,22 @@ const DURATIONS: [u64; 7] = [30, 60, 90, 120, 180, 300, 600];
 pub enum Row {
     Duration,
     Submit,
+    /// Turns every kind in a group on or off at once.
+    Group(Group),
     Kind(Kind),
 }
 
 impl Row {
-    /// The settings rows, then a row for each kind of problem.
+    /// The settings rows, then each group followed by its kinds.
     pub fn all() -> impl Iterator<Item = Row> {
-        [Row::Duration, Row::Submit]
+        let kinds = Group::ALL
             .into_iter()
-            .chain(Kind::ALL.iter().map(|&k| Row::Kind(k)))
+            .flat_map(|g| std::iter::once(Row::Group(g)).chain(g.kinds().map(Row::Kind)));
+        [Row::Duration, Row::Submit].into_iter().chain(kinds)
     }
 
-    fn count() -> usize {
-        2 + Kind::ALL.len()
+    pub fn count() -> usize {
+        Row::all().count()
     }
 }
 
@@ -60,8 +66,23 @@ impl Menu {
                 config.session.duration = next.unwrap_or(current);
             }
             Row::Submit => config.session.submit = config.session.submit.toggled(),
+            Row::Group(group) => toggle_group(&mut config.problems.kinds, group),
             Row::Kind(kind) => toggle(&mut config.problems.kinds, kind),
         }
+    }
+}
+
+/// Turns on every kind in `group`, or if they are all on already, turns
+/// them all off, unless that would leave none.
+fn toggle_group(kinds: &mut Vec<Kind>, group: Group) {
+    if group.kinds().all(|k| kinds.contains(&k)) {
+        if kinds.iter().any(|k| k.group() != group) {
+            kinds.retain(|k| k.group() != group);
+        }
+    } else {
+        kinds.extend(group.kinds());
+        kinds.sort();
+        kinds.dedup();
     }
 }
 
@@ -129,6 +150,26 @@ mod tests {
         assert_eq!(config.session.submit, Submit::Enter);
         menu.change(&mut config, false);
         assert_eq!(config.session.submit, Submit::Auto);
+    }
+
+    #[test]
+    fn group_toggles_all_its_kinds() {
+        let mut kinds = Kind::CORE.to_vec();
+        toggle_group(&mut kinds, Group::Powers);
+        assert!(Group::Powers.kinds().all(|k| kinds.contains(&k)));
+        // The core kinds are only part of Arithmetic, so the first toggle
+        // completes the group and the second clears it.
+        toggle_group(&mut kinds, Group::Arithmetic);
+        assert!(kinds.contains(&Kind::LongMul));
+        toggle_group(&mut kinds, Group::Arithmetic);
+        assert!(kinds.iter().all(|k| k.group() == Group::Powers));
+        // Turning off the only group left does nothing.
+        toggle_group(&mut kinds, Group::Powers);
+        assert!(!kinds.is_empty());
+        // A partly enabled group is completed, not cleared.
+        let mut kinds = vec![Kind::Add];
+        toggle_group(&mut kinds, Group::Arithmetic);
+        assert_eq!(kinds, Group::Arithmetic.kinds().collect::<Vec<_>>());
     }
 
     #[test]

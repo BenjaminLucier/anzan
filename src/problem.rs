@@ -24,6 +24,7 @@ pub enum Kind {
     Square,
     Cube,
     PowerOfTwo,
+    Sqrt,
     Divisible,
     Prime,
     Factorize,
@@ -31,7 +32,6 @@ pub enum Kind {
     PercentOf,
     PercentChange,
     Successive,
-    Sqrt,
     #[serde(rename = "bps")]
     BasisPoints,
     Compound,
@@ -50,6 +50,7 @@ impl Kind {
         Kind::Square,
         Kind::Cube,
         Kind::PowerOfTwo,
+        Kind::Sqrt,
         Kind::Divisible,
         Kind::Prime,
         Kind::Factorize,
@@ -57,7 +58,6 @@ impl Kind {
         Kind::PercentOf,
         Kind::PercentChange,
         Kind::Successive,
-        Kind::Sqrt,
         Kind::BasisPoints,
         Kind::Compound,
         Kind::Doubling,
@@ -106,7 +106,7 @@ impl Kind {
             Kind::Divisible => "Divisibility",
             Kind::Prime => "Primes",
             Kind::Factorize => "Prime factors",
-            Kind::Convert => "Fractions ↔ decimals ↔ %",
+            Kind::Convert => "Conversions",
             Kind::PercentOf => "Percent of",
             Kind::PercentChange => "Percent change",
             Kind::Successive => "Successive changes",
@@ -115,6 +115,55 @@ impl Kind {
             Kind::Compound => "Compound growth",
             Kind::Doubling => "Rule of 72",
         }
+    }
+}
+
+impl Kind {
+    pub fn group(self) -> Group {
+        match self {
+            Kind::Add | Kind::Sub | Kind::Mul | Kind::Div | Kind::LongMul => Group::Arithmetic,
+            Kind::Square | Kind::Cube | Kind::PowerOfTwo | Kind::Sqrt => Group::Powers,
+            Kind::Divisible | Kind::Prime | Kind::Factorize => Group::NumberTheory,
+            Kind::Convert | Kind::PercentOf | Kind::PercentChange | Kind::Successive => {
+                Group::Percentages
+            }
+            Kind::BasisPoints | Kind::Compound | Kind::Doubling => Group::Finance,
+        }
+    }
+}
+
+/// Kinds of problem that belong together, for menus and statistics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Group {
+    Arithmetic,
+    Powers,
+    NumberTheory,
+    Percentages,
+    Finance,
+}
+
+impl Group {
+    pub const ALL: [Group; 5] = [
+        Group::Arithmetic,
+        Group::Powers,
+        Group::NumberTheory,
+        Group::Percentages,
+        Group::Finance,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Group::Arithmetic => "Arithmetic",
+            Group::Powers => "Powers and roots",
+            Group::NumberTheory => "Number theory",
+            Group::Percentages => "Fractions and percentages",
+            Group::Finance => "Finance",
+        }
+    }
+
+    /// The kinds in this group, in menu order.
+    pub fn kinds(self) -> impl Iterator<Item = Kind> {
+        Kind::ALL.iter().copied().filter(move |k| k.group() == self)
     }
 }
 
@@ -593,6 +642,12 @@ mod tests {
             assert_eq!(name.as_str(), Some(kind.name()));
             assert_eq!(kind.name().parse(), Ok(kind));
         }
+    }
+
+    #[test]
+    fn groups_list_kinds_in_menu_order() {
+        let grouped: Vec<Kind> = Group::ALL.iter().flat_map(|g| g.kinds()).collect();
+        assert_eq!(grouped, Kind::ALL);
     }
 
     #[test]
