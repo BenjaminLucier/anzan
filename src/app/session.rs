@@ -7,13 +7,15 @@ use rand::{RngExt, rngs::StdRng};
 
 use super::Record;
 use crate::{
+    answer::Answer,
     generate::Settings,
     problem::Problem,
     store::{Attempt, SessionRecord},
 };
 
-/// The longest answer the input accepts. Any answer we ask for fits easily.
-pub const MAX_INPUT: usize = 12;
+/// The longest answer the input accepts. Any answer we ask for fits easily,
+/// even a prime factorization written out in full.
+pub const MAX_INPUT: usize = 20;
 
 /// A moment known on both clocks, for turning an `Instant` into a timestamp.
 #[derive(Debug, Clone, Copy)]
@@ -55,6 +57,8 @@ pub struct Session {
     /// Time left, as of the last `tick`.
     pub remaining: Duration,
     pub problem: Problem,
+    /// What counts as a correct answer to `problem`.
+    answer: Answer,
     pub input: String,
     pub score: u32,
 }
@@ -69,6 +73,7 @@ impl Session {
     ) -> Self {
         let id = format!("{:016x}", rng.random::<u64>());
         let problem = settings.generate(&mut rng);
+        let answer = problem.answer();
         Self {
             id,
             settings,
@@ -80,6 +85,7 @@ impl Session {
             edits: 0,
             remaining: duration,
             problem,
+            answer,
             input: String::new(),
             score: 0,
         }
@@ -101,15 +107,16 @@ impl Session {
         }
     }
 
-    /// Accepts digits, plus a minus sign at the start. Checks the answer
-    /// after every keystroke, so a correct answer moves on without Enter.
+    /// Checks the answer after every keystroke, so a correct answer moves
+    /// on without Enter.
     pub fn type_char(&mut self, c: char, now: Instant, out: &mut Vec<Record>) {
-        let allowed = c.is_ascii_digit() || (c == '-' && self.input.is_empty());
+        // Input stays ASCII, so its length in bytes is its width on screen.
+        let allowed = c.is_ascii_graphic() || (c == ' ' && !self.input.is_empty());
         if !allowed || self.input.len() >= MAX_INPUT {
             return;
         }
         self.input.push(c);
-        if self.input.parse() == Ok(self.problem.answer()) {
+        if self.answer.check(&self.input) {
             out.push(Record::Attempt(self.attempt(now)));
             self.score += 1;
             self.next_problem(now);
@@ -148,7 +155,7 @@ impl Session {
             session: self.id.clone(),
             problem: self.problem,
             question: self.problem.to_string(),
-            answer: self.problem.answer().to_string(),
+            answer: self.answer.to_string(),
             given: self.input.clone(),
             // Auto-submit only ever accepts a correct answer.
             correct: true,
@@ -159,6 +166,7 @@ impl Session {
 
     fn next_problem(&mut self, now: Instant) {
         self.problem = self.settings.generate(&mut self.rng);
+        self.answer = self.problem.answer();
         self.input.clear();
         self.edits = 0;
         self.asked = now;

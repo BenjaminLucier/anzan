@@ -161,7 +161,7 @@ mod tests {
             session: "00c0ffee00c0ffee".into(),
             problem,
             question: problem.to_string(),
-            answer: problem.answer().to_string(),
+            answer: problem.result().to_string(),
             given: "85".into(),
             correct: true,
             ms: 2140,

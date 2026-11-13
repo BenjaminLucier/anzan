@@ -43,7 +43,7 @@ impl AddSub {
         let sum = self.add(rng);
         Problem {
             op: Op::Sub,
-            lhs: sum.answer(),
+            lhs: sum.result(),
             rhs: sum.rhs,
         }
     }
@@ -87,7 +87,7 @@ impl MulDiv {
         let product = self.mul(rng);
         Problem {
             op: Op::Div,
-            lhs: product.answer(),
+            lhs: product.result(),
             rhs: product.lhs,
         }
     }
@@ -131,7 +131,7 @@ mod tests {
         fn sub_reverses_an_add(s in add_sub(), seed: u64) {
             let p = s.sub(&mut StdRng::seed_from_u64(seed));
             prop_assert_eq!(p.op, Op::Sub);
-            prop_assert!(s.lhs.contains(p.answer()));
+            prop_assert!(s.lhs.contains(p.result()));
             prop_assert!(s.rhs.contains(p.rhs));
         }
 
@@ -149,7 +149,7 @@ mod tests {
             prop_assert_eq!(p.op, Op::Div);
             prop_assert_eq!(p.lhs % p.rhs, 0);
             prop_assert!(s.lhs.contains(p.rhs));
-            prop_assert!(s.rhs.contains(p.answer()));
+            prop_assert!(s.rhs.contains(p.result()));
         }
     }
 
@@ -158,8 +158,8 @@ mod tests {
         let (add_sub, mul_div) = (AddSub::default(), MulDiv::default());
         let mut rng = StdRng::seed_from_u64(0);
         for _ in 0..10_000 {
-            assert!(add_sub.sub(&mut rng).answer() >= 2);
-            assert!(mul_div.div(&mut rng).answer() >= 2);
+            assert!(add_sub.sub(&mut rng).result() >= 2);
+            assert!(mul_div.div(&mut rng).result() >= 2);
         }
     }
 }

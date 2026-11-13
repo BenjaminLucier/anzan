@@ -4,6 +4,8 @@ use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
+use crate::answer::Answer;
+
 /// An arithmetic operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -69,8 +71,14 @@ pub struct Problem {
 }
 
 impl Problem {
-    /// The answer. Generators only produce divisions that come out exact.
-    pub fn answer(&self) -> i64 {
+    /// What counts as a correct answer.
+    pub fn answer(&self) -> Answer {
+        Answer::int(self.result())
+    }
+
+    /// The value of the expression. Generators only produce divisions that
+    /// come out exact.
+    pub fn result(&self) -> i64 {
         match self.op {
             Op::Add => self.lhs + self.rhs,
             Op::Sub => self.lhs - self.rhs,
@@ -96,10 +104,10 @@ mod tests {
 
     #[test]
     fn answers() {
-        assert_eq!(p(Op::Add, 47, 38).answer(), 85);
-        assert_eq!(p(Op::Sub, 85, 38).answer(), 47);
-        assert_eq!(p(Op::Mul, 7, 38).answer(), 266);
-        assert_eq!(p(Op::Div, 266, 7).answer(), 38);
+        assert_eq!(p(Op::Add, 47, 38).result(), 85);
+        assert_eq!(p(Op::Sub, 85, 38).result(), 47);
+        assert_eq!(p(Op::Mul, 7, 38).result(), 266);
+        assert_eq!(p(Op::Div, 266, 7).result(), 38);
     }
 
     #[test]

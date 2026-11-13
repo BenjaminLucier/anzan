@@ -225,7 +225,7 @@ mod tests {
     fn correct_answer_advances_without_enter() {
         let (mut app, t0) = new_app();
         let first = session(&app).problem;
-        type_str(&mut app, &first.answer().to_string(), t0);
+        type_str(&mut app, &first.result().to_string(), t0);
         assert_eq!(session(&app).score, 1);
         assert!(session(&app).input.is_empty());
         assert_ne!(
@@ -239,7 +239,7 @@ mod tests {
     fn wrong_answer_stays_put() {
         let (mut app, t0) = new_app();
         let first = session(&app).problem;
-        type_str(&mut app, &(first.answer() + 1).to_string(), t0);
+        type_str(&mut app, &(first.result() + 1).to_string(), t0);
         assert_eq!(session(&app).score, 0);
         assert_eq!(session(&app).problem, first);
     }
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn backspace_fixes_a_typo() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.answer().to_string();
+        let answer = session(&app).problem.result().to_string();
         type_str(&mut app, "9999", t0);
         (0..4).for_each(|_| press(&mut app, KeyCode::Backspace, t0));
         type_str(&mut app, &answer, t0);
@@ -255,19 +255,12 @@ mod tests {
     }
 
     #[test]
-    fn ignores_non_answer_characters() {
+    fn input_is_printable_ascii_without_leading_space() {
         let (mut app, t0) = new_app();
-        type_str(&mut app, "a 1-.", t0);
-        assert_eq!(session(&app).input, "1");
-        type_str(&mut app, &"9".repeat(20), t0);
+        type_str(&mut app, " 1 ½/", t0);
+        assert_eq!(session(&app).input, "1 /");
+        type_str(&mut app, &"9".repeat(40), t0);
         assert_eq!(session(&app).input.len(), MAX_INPUT);
-    }
-
-    #[test]
-    fn minus_only_at_the_start() {
-        let (mut app, t0) = new_app();
-        type_str(&mut app, "-", t0);
-        assert_eq!(session(&app).input, "-");
     }
 
     fn on_menu(app: &App) -> bool {
@@ -352,7 +345,7 @@ mod tests {
     #[test]
     fn answer_after_time_up_does_not_count() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.answer().to_string();
+        let answer = session(&app).problem.result().to_string();
         type_str(&mut app, &answer, t0 + DURATION);
         assert!(on_summary(&app));
         assert_eq!(summary(&app).score, 0);
@@ -368,7 +361,7 @@ mod tests {
     #[test]
     fn enter_on_summary_starts_a_fresh_session() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.answer().to_string();
+        let answer = session(&app).problem.result().to_string();
         type_str(&mut app, &answer, t0);
         let t1 = t0 + DURATION;
         app.tick(t1);
@@ -384,7 +377,7 @@ mod tests {
         let (mut app, t0) = new_app();
         assert_eq!(session(&app).summary().time_per_answer, None);
         for _ in 0..3 {
-            let answer = session(&app).problem.answer().to_string();
+            let answer = session(&app).problem.result().to_string();
             type_str(&mut app, &answer, t0);
         }
         app.tick(t0 + DURATION);
@@ -416,7 +409,7 @@ mod tests {
     fn correct_answer_is_recorded() {
         let (mut app, t0) = new_app();
         let problem = session(&app).problem;
-        let answer = problem.answer().to_string();
+        let answer = problem.result().to_string();
         type_str(&mut app, "9", t0);
         press(&mut app, KeyCode::Backspace, t0);
         type_str(&mut app, &answer, t0 + secs(2.5));
@@ -436,9 +429,9 @@ mod tests {
     #[test]
     fn timing_restarts_with_each_problem() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.answer().to_string();
+        let answer = session(&app).problem.result().to_string();
         type_str(&mut app, &answer, t0 + secs(3.0));
-        let answer = session(&app).problem.answer().to_string();
+        let answer = session(&app).problem.result().to_string();
         type_str(&mut app, &answer, t0 + secs(4.0));
         let ms: Vec<_> = records(&mut app)
             .into_iter()
@@ -453,7 +446,7 @@ mod tests {
     #[test]
     fn finished_session_is_recorded() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.answer().to_string();
+        let answer = session(&app).problem.result().to_string();
         type_str(&mut app, &answer, t0);
         records(&mut app);
         app.tick(t0 + DURATION + secs(5.0));
