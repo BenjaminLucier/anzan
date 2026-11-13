@@ -20,6 +20,7 @@ submit = "auto"
 #   "long_mul"                          larger multiplications, like 47 × 38
 #   "square", "cube", "power_of_two"    powers to know by heart
 #   "divisible", "prime", "factorize"   divisibility, primes, factorization
+#   "convert"                           fractions ↔ decimals ↔ percentages
 kinds = ["add", "sub", "mul", "div"]
 
 [problems.add_sub]
@@ -54,3 +55,9 @@ divisors = [2, 13]
 dividends = [100, 9999]
 primes = [2, 100]
 factorize = [4, 1000]
+
+[problems.fractions]
+# Conversions between fractions, decimals and percentages use proper
+# fractions in lowest terms with these denominators. Repeating decimals are
+# answered to 4 places (1/7 ≈ 0.1429), and percentages to 2 (14.29).
+denominators = [2, 20]

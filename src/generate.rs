@@ -1,6 +1,7 @@
 //! Generators that produce problems at random.
 
 mod arithmetic;
+mod fractions;
 mod number_theory;
 mod powers;
 
@@ -11,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub use self::{
     arithmetic::{AddSub, LongMul, MulDiv},
+    fractions::Fractions,
     number_theory::NumberTheory,
     powers::Powers,
 };
@@ -98,6 +100,7 @@ pub struct Settings {
     pub long_mul: LongMul,
     pub powers: Powers,
     pub number_theory: NumberTheory,
+    pub fractions: Fractions,
 }
 
 impl Default for Settings {
@@ -109,6 +112,7 @@ impl Default for Settings {
             long_mul: LongMul::default(),
             powers: Powers::default(),
             number_theory: NumberTheory::default(),
+            fractions: Fractions::default(),
         }
     }
 }
@@ -123,7 +127,8 @@ impl Settings {
             return Err("`mul_div.lhs` must not contain 0, since it is the divisor".into());
         }
         self.powers.validate()?;
-        self.number_theory.validate()
+        self.number_theory.validate()?;
+        self.fractions.validate()
     }
 
     /// # Panics
@@ -148,6 +153,7 @@ impl Settings {
             Kind::Divisible => self.number_theory.divisible(rng),
             Kind::Prime => self.number_theory.is_prime(rng),
             Kind::Factorize => self.number_theory.factorize(rng),
+            Kind::Convert => self.fractions.convert(rng),
         }
     }
 }
@@ -220,6 +226,8 @@ mod tests {
             for _ in 0..200 {
                 let p = settings.generate_kind(kind, &mut rng);
                 assert_eq!(p.kind(), kind);
+                let json = serde_json::to_value(p).unwrap();
+                assert_eq!(json["kind"], kind.name(), "stored tag of {p}");
                 let answer = p.answer();
                 assert!(answer.check(&answer.to_string()), "{p} = {answer}");
             }

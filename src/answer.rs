@@ -11,6 +11,9 @@ pub enum Answer {
     Exact(Rational),
     /// A number close enough to this one.
     Approx(Rational, Tolerance),
+    /// This number written as a fraction in lowest terms, such as `3/8`,
+    /// or as a plain integer if it is one.
+    Fraction(Rational),
     YesNo(bool),
     /// Prime factors, repeated by multiplicity, in ascending order. Matches
     /// `2 2 2 3`, `2*2*2*3`, `2^3 × 3` and so on, in any order.
@@ -38,6 +41,7 @@ impl Answer {
             Answer::Approx(value, tolerance) => {
                 parse_number(input).is_some_and(|x| tolerance.accepts(*value, x))
             }
+            Answer::Fraction(value) => parse_fraction(input) == Some(*value),
             Answer::YesNo(value) => parse_yes_no(input) == Some(*value),
             Answer::Factors(factors) => parse_factors(input).is_some_and(|mut given| {
                 given.sort_unstable();
@@ -77,6 +81,8 @@ impl fmt::Display for Answer {
             Answer::Approx(value, Tolerance::Relative(_)) => {
                 write!(f, "≈ {}", value.to_decimal(2))
             }
+            Answer::Fraction(value) if value.is_integer() => write!(f, "{value}"),
+            Answer::Fraction(value) => write!(f, "{}/{}", value.num(), value.den()),
             Answer::YesNo(value) => f.write_str(if *value { "yes" } else { "no" }),
             Answer::Factors(factors) => {
                 let mut first = true;
@@ -97,13 +103,25 @@ impl fmt::Display for Answer {
     }
 }
 
-/// A number, allowing a leading `$` and a trailing `%`, which are only
-/// decoration: the question says what unit it wants.
+/// A number, allowing a leading `≈` or `$` and a trailing `%`, which are
+/// only decoration: the question says what unit it wants.
 fn parse_number(input: &str) -> Option<Rational> {
     let s = input.trim();
+    let s = s.strip_prefix('≈').map_or(s, str::trim_start);
     let s = s.strip_prefix('$').unwrap_or(s);
     let s = s.strip_suffix('%').unwrap_or(s);
     s.parse().ok()
+}
+
+/// `a/b` in lowest terms, or a plain integer.
+fn parse_fraction(input: &str) -> Option<Rational> {
+    let s = input.trim();
+    let (num, den) = s.split_once('/').unwrap_or((s, "1"));
+    let (num, den): (i128, i128) = (num.trim().parse().ok()?, den.trim().parse().ok()?);
+    let value = Rational::new(num, den)?;
+    // Lowest terms with a positive denominator is exactly what Rational
+    // normalizes to, so anything else changes on the way in.
+    (value.num() == num && value.den() == den).then_some(value)
 }
 
 fn parse_yes_no(input: &str) -> Option<bool> {
@@ -204,6 +222,18 @@ mod tests {
         assert!(root.check("7.1"));
         assert!(!root.check("7"));
         assert!(!root.check("7.2"));
+    }
+
+    #[test]
+    fn fraction_wants_lowest_terms() {
+        let f = Answer::Fraction(r(3, 8));
+        assert!(f.check("3/8") && f.check(" 3 / 8 "));
+        for input in ["6/16", "0.375", "37.5%", "3/9", "3"] {
+            assert!(!f.check(input), "{input:?}");
+        }
+        assert!(Answer::Fraction(r(-1, 2)).check("-1/2"));
+        assert!(Answer::Fraction(r(2, 1)).check("2"));
+        assert_eq!(f.to_string(), "3/8");
     }
 
     #[test]

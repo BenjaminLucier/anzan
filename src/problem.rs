@@ -5,9 +5,10 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    answer::Answer,
+    answer::{Answer, Tolerance},
     expr::Expr,
     number::{is_prime, prime_factors},
+    rational::Rational,
 };
 
 /// A kind of problem. Sessions choose among the kinds enabled in the
@@ -26,6 +27,7 @@ pub enum Kind {
     Divisible,
     Prime,
     Factorize,
+    Convert,
 }
 
 impl Kind {
@@ -42,6 +44,7 @@ impl Kind {
         Kind::Divisible,
         Kind::Prime,
         Kind::Factorize,
+        Kind::Convert,
     ];
 
     /// The kinds a session asks unless told otherwise: the four basic
@@ -62,6 +65,7 @@ impl Kind {
             Kind::Divisible => "divisible",
             Kind::Prime => "prime",
             Kind::Factorize => "factorize",
+            Kind::Convert => "convert",
         }
     }
 
@@ -79,6 +83,7 @@ impl Kind {
             Kind::Divisible => "Divisibility",
             Kind::Prime => "Primes",
             Kind::Factorize => "Prime factors",
+            Kind::Convert => "Fractions ↔ decimals ↔ %",
         }
     }
 }
@@ -97,6 +102,28 @@ impl FromStr for Kind {
             })
     }
 }
+
+/// A way of writing a number between 0 and 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Form {
+    Fraction,
+    Decimal,
+    Percent,
+}
+
+impl Form {
+    fn name(self) -> &'static str {
+        match self {
+            Form::Fraction => "a fraction",
+            Form::Decimal => "a decimal",
+            Form::Percent => "a percentage",
+        }
+    }
+}
+
+/// Decimal places wanted when an answer does not terminate: 1/7 ≈ 0.1429.
+pub const REPEATING_PLACES: u32 = 4;
 
 /// An arithmetic operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -171,12 +198,20 @@ pub enum Problem {
         d: i64,
     },
     /// Is `n` prime?
+    #[serde(rename = "prime")]
     IsPrime {
         n: i64,
     },
     /// The prime factors of `n`.
     Factorize {
         n: i64,
+    },
+    /// `num/den`, shown in one form and asked for in another.
+    Convert {
+        num: i64,
+        den: i64,
+        from: Form,
+        to: Form,
     },
 }
 
@@ -203,6 +238,7 @@ impl Problem {
             Problem::Divisible { .. } => Kind::Divisible,
             Problem::IsPrime { .. } => Kind::Prime,
             Problem::Factorize { .. } => Kind::Factorize,
+            Problem::Convert { .. } => Kind::Convert,
         }
     }
 
@@ -220,7 +256,8 @@ impl Problem {
             | Problem::PowerOfTwo { .. }
             | Problem::Divisible { .. }
             | Problem::IsPrime { .. }
-            | Problem::Factorize { .. } => None,
+            | Problem::Factorize { .. }
+            | Problem::Convert { .. } => None,
         }
     }
 
@@ -241,6 +278,14 @@ impl Problem {
             Problem::Divisible { n, d } => Answer::YesNo(n % d == 0),
             Problem::IsPrime { n } => Answer::YesNo(is_prime(n as u64)),
             Problem::Factorize { n } => Answer::Factors(prime_factors(n as u64)),
+            Problem::Convert { to, .. } => {
+                let value = self.value();
+                match to {
+                    Form::Fraction => Answer::Fraction(value),
+                    Form::Decimal => decimal(value, REPEATING_PLACES),
+                    Form::Percent => decimal(percent(value), REPEATING_PLACES - 2),
+                }
+            }
         }
     }
 }
@@ -265,6 +310,26 @@ impl Problem {
             Problem::PowerOfTwo { exp } => pow(2, exp),
             Problem::Divisible { n, d } => Expr::text(format!("{n} ÷ {d}")),
             Problem::IsPrime { n } | Problem::Factorize { n } => Expr::text(n.to_string()),
+            Problem::Convert { num, den, from, .. } => {
+                let value = self.value();
+                match from {
+                    Form::Fraction => {
+                        Expr::frac(Expr::text(num.to_string()), Expr::text(den.to_string()))
+                    }
+                    Form::Decimal => Expr::text(value.to_string()),
+                    Form::Percent => Expr::text(format!("{}%", percent(value))),
+                }
+            }
+        }
+    }
+
+    /// The number a conversion is about.
+    fn value(&self) -> Rational {
+        match *self {
+            Problem::Convert { num, den, .. } => {
+                Rational::new(num.into(), den.into()).unwrap_or(Rational::ZERO)
+            }
+            _ => Rational::ZERO,
         }
     }
 
@@ -274,9 +339,30 @@ impl Problem {
             Problem::Divisible { .. } => Some("divides exactly? y/n"),
             Problem::IsPrime { .. } => Some("prime? y/n"),
             Problem::Factorize { .. } => Some("prime factors, such as 2 2 3 or 2^2 3"),
+            Problem::Convert { to, .. } => Some(match to {
+                Form::Fraction => "as a fraction in lowest terms",
+                Form::Decimal => "as a decimal",
+                Form::Percent => "as a percentage",
+            }),
             _ => None,
         }
     }
+}
+
+/// `value` exactly if its decimal ends, or else to `places` places.
+fn decimal(value: Rational, places: u32) -> Answer {
+    if value.terminates() {
+        Answer::Exact(value)
+    } else {
+        Answer::Approx(value, Tolerance::Places(places))
+    }
+}
+
+/// `value` as a percentage: 3/8 is 37.5.
+fn percent(value: Rational) -> Rational {
+    value
+        .checked_mul(Rational::int(100))
+        .unwrap_or(Rational::ZERO)
 }
 
 /// The question on one line, as stored in history.
@@ -286,6 +372,7 @@ impl fmt::Display for Problem {
             Problem::Divisible { n, d } => write!(f, "Is {n} divisible by {d}?"),
             Problem::IsPrime { n } => write!(f, "Is {n} prime?"),
             Problem::Factorize { n } => write!(f, "Prime factors of {n}"),
+            Problem::Convert { to, .. } => write!(f, "{} as {}", self.expr(), to.name()),
             _ => write!(f, "{}", self.expr()),
         }
     }
@@ -337,6 +424,25 @@ mod tests {
         assert_eq!(answer(Problem::IsPrime { n: 97 }), "yes");
         assert_eq!(answer(Problem::Factorize { n: 360 }), "2³ × 3² × 5");
         assert_eq!(Problem::IsPrime { n: 91 }.to_string(), "Is 91 prime?");
+    }
+
+    #[test]
+    fn conversions() {
+        let convert = |num, den, from, to| Problem::Convert { num, den, from, to };
+        let p = convert(1, 7, Form::Fraction, Form::Decimal);
+        assert_eq!(p.to_string(), "1/7 as a decimal");
+        assert_eq!(p.answer().to_string(), "≈ 0.1429");
+        assert!(p.answer().check("0.142857"));
+        let p = convert(1, 8, Form::Fraction, Form::Percent);
+        assert!(p.answer().check("12.5") && p.answer().check("12.5%"));
+        let p = convert(1, 3, Form::Fraction, Form::Percent);
+        assert!(p.answer().check("33.33"));
+        let p = convert(3, 8, Form::Decimal, Form::Fraction);
+        assert_eq!(p.to_string(), "0.375 as a fraction");
+        assert!(p.answer().check("3/8") && !p.answer().check("0.375"));
+        let p = convert(1, 16, Form::Percent, Form::Decimal);
+        assert_eq!(p.to_string(), "6.25% as a decimal");
+        assert!(p.answer().check("0.0625"));
     }
 
     #[test]
