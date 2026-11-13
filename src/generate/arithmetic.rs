@@ -83,6 +83,33 @@ impl MulDiv {
     }
 }
 
+/// Settings for long multiplication: by default a two- or three-digit
+/// number times a two-digit one, such as 47 × 38 or 365 × 24.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LongMul {
+    pub lhs: Range,
+    pub rhs: Range,
+}
+
+impl Default for LongMul {
+    fn default() -> Self {
+        Self {
+            lhs: Range::new(10, 999),
+            rhs: Range::new(10, 99),
+        }
+    }
+}
+
+impl LongMul {
+    pub fn generate(&self, rng: &mut impl Rng) -> Problem {
+        Problem::LongMul {
+            lhs: self.lhs.sample(rng),
+            rhs: self.rhs.sample(rng),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -144,6 +171,18 @@ mod tests {
             prop_assert_eq!(lhs % rhs, 0);
             prop_assert!(s.lhs.contains(rhs));
             prop_assert!(s.rhs.contains(lhs / rhs));
+        }
+    }
+
+    #[test]
+    fn long_mul_operands_stay_in_range() {
+        let s = LongMul::default();
+        let mut rng = StdRng::seed_from_u64(0);
+        for _ in 0..1_000 {
+            let Problem::LongMul { lhs, rhs } = s.generate(&mut rng) else {
+                panic!("not a long multiplication");
+            };
+            assert!(s.lhs.contains(lhs) && s.rhs.contains(rhs));
         }
     }
 

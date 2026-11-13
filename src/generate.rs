@@ -9,7 +9,7 @@ use rand::{Rng, RngExt, seq::IndexedRandom};
 use serde::{Deserialize, Serialize};
 
 pub use self::{
-    arithmetic::{AddSub, MulDiv},
+    arithmetic::{AddSub, LongMul, MulDiv},
     powers::Powers,
 };
 
@@ -93,6 +93,7 @@ pub struct Settings {
     pub kinds: Vec<Kind>,
     pub add_sub: AddSub,
     pub mul_div: MulDiv,
+    pub long_mul: LongMul,
     pub powers: Powers,
 }
 
@@ -102,6 +103,7 @@ impl Default for Settings {
             kinds: Kind::CORE.to_vec(),
             add_sub: AddSub::default(),
             mul_div: MulDiv::default(),
+            long_mul: LongMul::default(),
             powers: Powers::default(),
         }
     }
@@ -134,6 +136,7 @@ impl Settings {
             Kind::Sub => self.add_sub.sub(rng),
             Kind::Mul => self.mul_div.mul(rng),
             Kind::Div => self.mul_div.div(rng),
+            Kind::LongMul => self.long_mul.generate(rng),
             Kind::Square => self.powers.square(rng),
             Kind::Cube => self.powers.cube(rng),
             Kind::PowerOfTwo => self.powers.power_of_two(rng),

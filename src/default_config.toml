@@ -17,6 +17,7 @@ submit = "auto"
 [problems]
 # Kinds of problem to ask, chosen at random with equal odds. Any of:
 #   "add", "sub", "mul", "div"          the four basic operations
+#   "long_mul"                          larger multiplications, like 47 × 38
 #   "square", "cube", "power_of_two"    powers to know by heart
 kinds = ["add", "sub", "mul", "div"]
 
@@ -31,6 +32,12 @@ rhs = [2, 100]
 # (lhs × rhs) ÷ lhs, so it always divides exactly. lhs must not include 0.
 lhs = [2, 12]
 rhs = [2, 100]
+
+[problems.long_mul]
+# Long multiplication asks lhs × rhs: by default a two- or three-digit
+# number times a two-digit one.
+lhs = [10, 999]
+rhs = [10, 99]
 
 [problems.powers]
 # Numbers to square, numbers to cube, and exponents of 2.

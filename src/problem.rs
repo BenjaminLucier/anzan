@@ -15,6 +15,7 @@ pub enum Kind {
     Sub,
     Mul,
     Div,
+    LongMul,
     Square,
     Cube,
     PowerOfTwo,
@@ -27,6 +28,7 @@ impl Kind {
         Kind::Sub,
         Kind::Mul,
         Kind::Div,
+        Kind::LongMul,
         Kind::Square,
         Kind::Cube,
         Kind::PowerOfTwo,
@@ -43,6 +45,7 @@ impl Kind {
             Kind::Sub => "sub",
             Kind::Mul => "mul",
             Kind::Div => "div",
+            Kind::LongMul => "long_mul",
             Kind::Square => "square",
             Kind::Cube => "cube",
             Kind::PowerOfTwo => "power_of_two",
@@ -56,6 +59,7 @@ impl Kind {
             Kind::Sub => "Subtraction",
             Kind::Mul => "Multiplication",
             Kind::Div => "Division",
+            Kind::LongMul => "Long multiplication",
             Kind::Square => "Squares",
             Kind::Cube => "Cubes",
             Kind::PowerOfTwo => "Powers of 2",
@@ -120,6 +124,7 @@ pub enum Problem {
     Sub { lhs: i64, rhs: i64 },
     Mul { lhs: i64, rhs: i64 },
     Div { lhs: i64, rhs: i64 },
+    LongMul { lhs: i64, rhs: i64 },
     Square { base: i64 },
     Cube { base: i64 },
     PowerOfTwo { exp: i64 },
@@ -141,6 +146,7 @@ impl Problem {
             Problem::Sub { .. } => Kind::Sub,
             Problem::Mul { .. } => Kind::Mul,
             Problem::Div { .. } => Kind::Div,
+            Problem::LongMul { .. } => Kind::LongMul,
             Problem::Square { .. } => Kind::Square,
             Problem::Cube { .. } => Kind::Cube,
             Problem::PowerOfTwo { .. } => Kind::PowerOfTwo,
@@ -148,13 +154,15 @@ impl Problem {
     }
 
     /// The operator and operands, if this is a plain arithmetic problem.
+    /// Long multiplication counts as multiplication.
     pub fn arithmetic(&self) -> Option<(Op, i64, i64)> {
         match *self {
             Problem::Add { lhs, rhs } => Some((Op::Add, lhs, rhs)),
             Problem::Sub { lhs, rhs } => Some((Op::Sub, lhs, rhs)),
             Problem::Mul { lhs, rhs } => Some((Op::Mul, lhs, rhs)),
             Problem::Div { lhs, rhs } => Some((Op::Div, lhs, rhs)),
-            _ => None,
+            Problem::LongMul { lhs, rhs } => Some((Op::Mul, lhs, rhs)),
+            Problem::Square { .. } | Problem::Cube { .. } | Problem::PowerOfTwo { .. } => None,
         }
     }
 
@@ -164,7 +172,8 @@ impl Problem {
             Problem::Add { .. }
             | Problem::Sub { .. }
             | Problem::Mul { .. }
-            | Problem::Div { .. } => {
+            | Problem::Div { .. }
+            | Problem::LongMul { .. } => {
                 let (op, lhs, rhs) = self.arithmetic().expect("arithmetic");
                 Answer::int(op.apply(lhs, rhs))
             }
@@ -185,7 +194,8 @@ impl Problem {
             Problem::Add { .. }
             | Problem::Sub { .. }
             | Problem::Mul { .. }
-            | Problem::Div { .. } => {
+            | Problem::Div { .. }
+            | Problem::LongMul { .. } => {
                 let (op, lhs, rhs) = self.arithmetic().expect("arithmetic");
                 Expr::text(format!("{lhs} {} {rhs}", op.symbol()))
             }
