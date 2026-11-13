@@ -14,4 +14,5 @@ pub mod problem;
 pub mod rational;
 pub mod stats;
 pub mod store;
+pub mod theme;
 pub mod ui;
