@@ -1,89 +1,67 @@
-//! The practice session: its state, and how it responds to keys and time.
+//! The application: which screen is showing, and how it responds to keys
+//! and time.
 //!
 //! Nothing here draws anything or touches files. Methods take the current
 //! time as an argument rather than reading the clock, so tests can control
 //! time. What should be saved is queued as records, which the caller drains
 //! and writes to the store.
 
+mod session;
+
 use std::time::{Duration, Instant};
 
-use jiff::{SignedDuration, Timestamp, Unit};
-use rand::{RngExt, rngs::StdRng};
+use jiff::Timestamp;
+use rand::{SeedableRng, rngs::StdRng};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+pub use self::session::{Epoch, MAX_INPUT, Session, Summary};
 use crate::{
-    generate::Settings,
-    problem::Problem,
-    store::{Attempt, Session},
+    config::Config,
+    store::{Attempt, SessionRecord},
 };
-
-/// The longest answer the input accepts. Any answer we ask for fits easily.
-pub const MAX_INPUT: usize = 12;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Screen {
-    Practice,
-    Summary,
-}
 
 /// Something that happened and should be saved.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Record {
     Attempt(Attempt),
-    Session(Session),
+    Session(SessionRecord),
+}
+
+#[expect(
+    clippy::large_enum_variant,
+    reason = "there is only ever one screen, so boxing would gain nothing"
+)]
+pub enum Screen {
+    Practice(Session),
+    Summary(Summary),
 }
 
 pub struct App {
-    settings: Settings,
+    config: Config,
     rng: StdRng,
-    duration: Duration,
-    /// A moment known on both clocks, for turning an `Instant` into a
-    /// timestamp.
-    epoch: (Instant, Timestamp),
-    session: String,
-    started: Instant,
-    /// When the current problem appeared.
-    asked: Instant,
-    /// Backspaces pressed on the current problem.
-    edits: u32,
+    epoch: Epoch,
     records: Vec<Record>,
     pub screen: Screen,
-    /// Time left in the session, as of the last `tick`.
-    pub remaining: Duration,
-    pub problem: Problem,
-    pub input: String,
-    pub score: u32,
     pub quit: bool,
 }
 
 impl App {
-    /// Starts a session. `now` and `wall` must describe the same moment.
-    pub fn new(
-        settings: Settings,
-        duration: Duration,
-        mut rng: StdRng,
-        now: Instant,
-        wall: Timestamp,
-    ) -> Self {
-        let problem = settings.generate(&mut rng);
-        let session = new_session_id(&mut rng);
-        Self {
-            settings,
+    /// Starts a session straight away. `now` and `wall` must describe the
+    /// same moment.
+    pub fn new(config: Config, rng: StdRng, now: Instant, wall: Timestamp) -> Self {
+        let mut app = Self {
+            config,
             rng,
-            duration,
-            epoch: (now, wall),
-            session,
-            started: now,
-            asked: now,
-            edits: 0,
+            epoch: Epoch { instant: now, wall },
             records: Vec::new(),
-            screen: Screen::Practice,
-            remaining: duration,
-            problem,
-            input: String::new(),
-            score: 0,
+            screen: Screen::Summary(Summary {
+                score: 0,
+                time_per_answer: None,
+            }),
             quit: false,
-        }
+        };
+        app.start(now);
+        app
     }
 
     /// Takes the records queued since the last call.
@@ -93,145 +71,74 @@ impl App {
 
     /// Brings the clock up to date, ending the session if time is up.
     pub fn tick(&mut self, now: Instant) {
-        self.remaining = self.duration.saturating_sub(now - self.started);
-        if self.screen == Screen::Practice && self.remaining.is_zero() {
-            self.end_session(self.started + self.duration, true);
-            self.screen = Screen::Summary;
+        if let Screen::Practice(session) = &mut self.screen
+            && session.tick(now)
+        {
+            self.end_session(now, true);
         }
     }
 
-    /// How long until the countdown shows a different whole second, or
-    /// `None` when nothing on screen changes with time.
+    /// How long until something on screen changes with time, or `None` if
+    /// nothing will.
     pub fn until_next_tick(&self) -> Option<Duration> {
-        if self.screen != Screen::Practice {
-            return None;
+        match &self.screen {
+            Screen::Practice(session) => Some(session.until_next_tick()),
+            Screen::Summary(_) => None,
         }
-        let fraction = Duration::from_nanos(self.remaining.subsec_nanos().into());
-        Some(if fraction.is_zero() {
-            Duration::from_secs(1)
-        } else {
-            fraction
-        })
     }
 
     pub fn handle_key(&mut self, key: KeyEvent, now: Instant) {
         if !key.is_press() {
             return;
         }
-        let screen = self.screen;
+        let practising = matches!(self.screen, Screen::Practice(_));
         self.tick(now);
-        if self.screen != screen {
+        if practising && !matches!(self.screen, Screen::Practice(_)) {
             // Time ran out before this key arrived. It belongs to the old
             // screen, so it must not act on the new one.
             return;
         }
-        match (self.screen, key.code) {
-            (_, KeyCode::Esc) => self.quit(now),
-            (_, KeyCode::Char('c')) if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.quit(now);
+        if key.code == KeyCode::Esc
+            || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
+        {
+            if practising {
+                self.end_session(now, false);
             }
-            (Screen::Practice, KeyCode::Char(c)) => self.type_char(c, now),
-            (Screen::Practice, KeyCode::Backspace) => {
-                if self.input.pop().is_some() {
-                    self.edits += 1;
-                }
+            self.quit = true;
+            return;
+        }
+        match (&mut self.screen, key.code) {
+            (Screen::Practice(session), KeyCode::Char(c)) => {
+                session.type_char(c, now, &mut self.records);
             }
-            (Screen::Summary, KeyCode::Enter) => self.restart(now),
+            (Screen::Practice(session), KeyCode::Backspace) => session.backspace(),
+            (Screen::Summary(_), KeyCode::Enter) => self.start(now),
             _ => {}
         }
     }
 
-    /// Accepts digits, plus a minus sign at the start. Checks the answer
-    /// after every keystroke, so a correct answer moves on without Enter.
-    fn type_char(&mut self, c: char, now: Instant) {
-        let allowed = c.is_ascii_digit() || (c == '-' && self.input.is_empty());
-        if !allowed || self.input.len() >= MAX_INPUT {
-            return;
+    fn start(&mut self, now: Instant) {
+        let session = Session::new(
+            self.config.problems.clone(),
+            self.config.session.duration(),
+            StdRng::from_rng(&mut self.rng),
+            self.epoch,
+            now,
+        );
+        self.screen = Screen::Practice(session);
+    }
+
+    fn end_session(&mut self, now: Instant, completed: bool) {
+        if let Screen::Practice(session) = &self.screen {
+            self.records
+                .push(Record::Session(session.record(now, completed)));
+            self.screen = Screen::Summary(session.summary());
         }
-        self.input.push(c);
-        if self.input.parse() == Ok(self.problem.answer()) {
-            self.record_attempt(now);
-            self.score += 1;
-            self.next_problem(now);
-        }
     }
-
-    fn record_attempt(&mut self, now: Instant) {
-        let answer = self.problem.answer().to_string();
-        self.records.push(Record::Attempt(Attempt {
-            ts: self.wall(now),
-            session: self.session.clone(),
-            problem: self.problem,
-            question: self.problem.to_string(),
-            // Auto-submit only ever accepts a correct answer.
-            correct: true,
-            answer,
-            given: self.input.clone(),
-            ms: (now - self.asked).as_millis() as u64,
-            edits: self.edits,
-        }));
-    }
-
-    fn next_problem(&mut self, now: Instant) {
-        self.problem = self.settings.generate(&mut self.rng);
-        self.input.clear();
-        self.edits = 0;
-        self.asked = now;
-    }
-
-    fn end_session(&mut self, end: Instant, completed: bool) {
-        self.records.push(Record::Session(Session {
-            id: self.session.clone(),
-            start: self.wall(self.started),
-            end: self.wall(end),
-            duration: self.duration.as_secs(),
-            score: self.score,
-            completed,
-            problems: self.settings.clone(),
-        }));
-    }
-
-    fn quit(&mut self, now: Instant) {
-        if self.screen == Screen::Practice {
-            self.end_session(now, false);
-        }
-        self.quit = true;
-    }
-
-    /// Average time per correct answer over the whole session.
-    pub fn time_per_answer(&self) -> Option<Duration> {
-        (self.score > 0).then(|| self.duration / self.score)
-    }
-
-    fn restart(&mut self, now: Instant) {
-        self.session = new_session_id(&mut self.rng);
-        self.started = now;
-        self.remaining = self.duration;
-        self.screen = Screen::Practice;
-        self.score = 0;
-        self.next_problem(now);
-    }
-
-    /// The wall-clock time at `now`, to the millisecond.
-    fn wall(&self, now: Instant) -> Timestamp {
-        let (instant, timestamp) = self.epoch;
-        let elapsed = SignedDuration::try_from(now - instant).unwrap_or(SignedDuration::MAX);
-        timestamp
-            .saturating_add(elapsed)
-            .and_then(|t| t.round(Unit::Millisecond))
-            .unwrap_or(timestamp)
-    }
-}
-
-/// A random 16-digit hex string. Only needs to be unique within one
-/// person's history.
-fn new_session_id(rng: &mut StdRng) -> String {
-    format!("{:016x}", rng.random::<u64>())
 }
 
 #[cfg(test)]
 mod tests {
-    use rand::SeedableRng;
     use ratatui::crossterm::event::KeyEventKind;
 
     use super::*;
@@ -242,13 +149,30 @@ mod tests {
     fn new_app() -> (App, Instant) {
         let t0 = Instant::now();
         let app = App::new(
-            Settings::default(),
-            DURATION,
+            Config::default(),
             StdRng::seed_from_u64(0),
             t0,
             wall_epoch(),
         );
         (app, t0)
+    }
+
+    fn session(app: &App) -> &Session {
+        match &app.screen {
+            Screen::Practice(session) => session,
+            Screen::Summary(_) => panic!("not practising"),
+        }
+    }
+
+    fn summary(app: &App) -> &Summary {
+        match &app.screen {
+            Screen::Summary(summary) => summary,
+            Screen::Practice(_) => panic!("not on the summary"),
+        }
+    }
+
+    fn on_summary(app: &App) -> bool {
+        matches!(app.screen, Screen::Summary(_))
     }
 
     fn wall_epoch() -> Timestamp {
@@ -280,12 +204,13 @@ mod tests {
     #[test]
     fn correct_answer_advances_without_enter() {
         let (mut app, t0) = new_app();
-        let first = app.problem;
+        let first = session(&app).problem;
         type_str(&mut app, &first.answer().to_string(), t0);
-        assert_eq!(app.score, 1);
-        assert!(app.input.is_empty());
+        assert_eq!(session(&app).score, 1);
+        assert!(session(&app).input.is_empty());
         assert_ne!(
-            app.problem, first,
+            session(&app).problem,
+            first,
             "seed 0 should not repeat the first problem"
         );
     }
@@ -293,36 +218,36 @@ mod tests {
     #[test]
     fn wrong_answer_stays_put() {
         let (mut app, t0) = new_app();
-        let first = app.problem;
+        let first = session(&app).problem;
         type_str(&mut app, &(first.answer() + 1).to_string(), t0);
-        assert_eq!(app.score, 0);
-        assert_eq!(app.problem, first);
+        assert_eq!(session(&app).score, 0);
+        assert_eq!(session(&app).problem, first);
     }
 
     #[test]
     fn backspace_fixes_a_typo() {
         let (mut app, t0) = new_app();
-        let answer = app.problem.answer().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, "9999", t0);
         (0..4).for_each(|_| press(&mut app, KeyCode::Backspace, t0));
         type_str(&mut app, &answer, t0);
-        assert_eq!(app.score, 1);
+        assert_eq!(session(&app).score, 1);
     }
 
     #[test]
     fn ignores_non_answer_characters() {
         let (mut app, t0) = new_app();
         type_str(&mut app, "a 1-.", t0);
-        assert_eq!(app.input, "1");
+        assert_eq!(session(&app).input, "1");
         type_str(&mut app, &"9".repeat(20), t0);
-        assert_eq!(app.input.len(), MAX_INPUT);
+        assert_eq!(session(&app).input.len(), MAX_INPUT);
     }
 
     #[test]
     fn minus_only_at_the_start() {
         let (mut app, t0) = new_app();
         type_str(&mut app, "-", t0);
-        assert_eq!(app.input, "-");
+        assert_eq!(session(&app).input, "-");
     }
 
     #[test]
@@ -334,7 +259,6 @@ mod tests {
         let (mut app, t0) = new_app();
         app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL), t0);
         assert!(app.quit);
-        assert!(app.input.is_empty());
     }
 
     #[test]
@@ -343,67 +267,70 @@ mod tests {
         let mut key = KeyEvent::from(KeyCode::Char('1'));
         key.kind = KeyEventKind::Release;
         app.handle_key(key, t0);
-        assert!(app.input.is_empty());
+        assert!(session(&app).input.is_empty());
     }
 
     #[test]
     fn session_ends_when_time_runs_out() {
         let (mut app, t0) = new_app();
         app.tick(t0 + secs(119.5));
-        assert_eq!(app.screen, Screen::Practice);
-        assert_eq!(app.remaining, secs(0.5));
+        assert!(!on_summary(&app));
+        assert_eq!(session(&app).remaining, secs(0.5));
         app.tick(t0 + DURATION);
-        assert_eq!(app.screen, Screen::Summary);
-        assert!(app.remaining.is_zero());
+        assert!(on_summary(&app));
     }
 
     #[test]
     fn answer_after_time_up_does_not_count() {
         let (mut app, t0) = new_app();
-        let answer = app.problem.answer().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0 + DURATION);
-        assert_eq!(app.score, 0);
-        assert_eq!(app.screen, Screen::Summary);
+        assert!(on_summary(&app));
+        assert_eq!(summary(&app).score, 0);
     }
 
     #[test]
     fn key_that_ends_the_session_does_not_restart_it() {
         let (mut app, t0) = new_app();
         press(&mut app, KeyCode::Enter, t0 + DURATION);
-        assert_eq!(app.screen, Screen::Summary);
+        assert!(on_summary(&app));
     }
 
     #[test]
     fn enter_on_summary_starts_a_fresh_session() {
         let (mut app, t0) = new_app();
-        let answer = app.problem.answer().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0);
         let t1 = t0 + DURATION;
         app.tick(t1);
         press(&mut app, KeyCode::Enter, t1);
-        assert_eq!(app.screen, Screen::Practice);
-        assert_eq!(app.score, 0);
+        assert!(!on_summary(&app));
+        assert_eq!(session(&app).score, 0);
         app.tick(t1 + secs(1.0));
-        assert_eq!(app.remaining, DURATION - secs(1.0));
+        assert_eq!(session(&app).remaining, DURATION - secs(1.0));
     }
 
     #[test]
-    fn time_per_answer() {
+    fn summary_shows_time_per_answer() {
         let (mut app, t0) = new_app();
-        assert_eq!(app.time_per_answer(), None);
+        assert_eq!(session(&app).summary().time_per_answer, None);
         for _ in 0..3 {
-            let answer = app.problem.answer().to_string();
+            let answer = session(&app).problem.answer().to_string();
             type_str(&mut app, &answer, t0);
         }
-        assert_eq!(app.time_per_answer(), Some(secs(40.0)));
+        app.tick(t0 + DURATION);
+        assert_eq!(summary(&app).score, 3);
+        assert_eq!(summary(&app).time_per_answer, Some(secs(40.0)));
     }
 
     #[test]
     fn summary_ignores_typing() {
         let (mut app, t0) = new_app();
         app.tick(t0 + DURATION);
+        records(&mut app);
         type_str(&mut app, "12", t0 + DURATION);
-        assert!(app.input.is_empty());
+        assert!(on_summary(&app));
+        assert!(records(&mut app).is_empty());
     }
 
     #[test]
@@ -419,7 +346,7 @@ mod tests {
     #[test]
     fn correct_answer_is_recorded() {
         let (mut app, t0) = new_app();
-        let problem = app.problem;
+        let problem = session(&app).problem;
         let answer = problem.answer().to_string();
         type_str(&mut app, "9", t0);
         press(&mut app, KeyCode::Backspace, t0);
@@ -434,15 +361,15 @@ mod tests {
         assert_eq!(attempt.ms, 2500);
         assert_eq!(attempt.edits, 1);
         assert_eq!(attempt.ts, "2026-11-13T10:00:02.5Z".parse().unwrap());
-        assert_eq!(attempt.session, app.session);
+        assert_eq!(attempt.session, session(&app).id);
     }
 
     #[test]
     fn timing_restarts_with_each_problem() {
         let (mut app, t0) = new_app();
-        let answer = app.problem.answer().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0 + secs(3.0));
-        let answer = app.problem.answer().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0 + secs(4.0));
         let ms: Vec<_> = records(&mut app)
             .into_iter()
@@ -457,7 +384,7 @@ mod tests {
     #[test]
     fn finished_session_is_recorded() {
         let (mut app, t0) = new_app();
-        let answer = app.problem.answer().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0);
         records(&mut app);
         app.tick(t0 + DURATION + secs(5.0));
@@ -490,9 +417,9 @@ mod tests {
     #[test]
     fn restart_starts_a_new_session() {
         let (mut app, t0) = new_app();
-        let first = app.session.clone();
+        let first = session(&app).id.clone();
         app.tick(t0 + DURATION);
         press(&mut app, KeyCode::Enter, t0 + DURATION);
-        assert_ne!(app.session, first);
+        assert_ne!(session(&app).id, first);
     }
 }

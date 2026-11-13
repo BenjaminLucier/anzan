@@ -5,7 +5,7 @@ use std::io::Write;
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::store::{Attempt, Session};
+use crate::store::{Attempt, SessionRecord};
 
 /// The columns of an exported attempt. Problem-specific operands are left
 /// out, since they differ between kinds of problem; `question` shows them.
@@ -51,7 +51,7 @@ pub fn attempts(rows: &[Attempt], out: impl Write) -> Result<()> {
     Ok(())
 }
 
-pub fn sessions(rows: &[Session], out: impl Write) -> Result<()> {
+pub fn sessions(rows: &[SessionRecord], out: impl Write) -> Result<()> {
     let mut csv = csv::Writer::from_writer(out);
     for s in rows {
         csv.serialize(SessionRow {

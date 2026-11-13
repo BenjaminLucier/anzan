@@ -33,13 +33,7 @@ fn main() -> Result<()> {
 
 fn practice(config: Config) -> Result<()> {
     let store = Store::new(store::data_dir()?);
-    let app = App::new(
-        config.problems,
-        config.session.duration(),
-        rand::make_rng(),
-        Instant::now(),
-        Timestamp::now(),
-    );
+    let app = App::new(config, rand::make_rng(), Instant::now(), Timestamp::now());
     ratatui::run(|terminal| run(terminal, app, &store))
 }
 

@@ -17,7 +17,7 @@ use ratatui::{
 };
 
 use self::bitmap::BigText;
-use crate::app::{App, MAX_INPUT, Screen};
+use crate::app::{App, MAX_INPUT, Screen, Session, Summary};
 
 /// Width of the answer box: the longest input, the cursor after it, one
 /// cell of padding, and the two borders.
@@ -26,28 +26,30 @@ const INPUT_WIDTH: u16 = MAX_INPUT as u16 + 4;
 pub fn render(app: &App, frame: &mut Frame) {
     let [top, body] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
-    render_top_bar(app, frame, top);
-    match app.screen {
-        Screen::Practice => render_practice(app, frame, body),
-        Screen::Summary => render_summary(app, frame, body),
+    frame.render_widget(Line::from("Esc quit ").dim().right_aligned(), top);
+    match &app.screen {
+        Screen::Practice(session) => {
+            render_status(session, frame, top);
+            render_practice(session, frame, body);
+        }
+        Screen::Summary(summary) => render_summary(summary, frame, body),
     }
 }
 
-fn render_top_bar(app: &App, frame: &mut Frame, area: Rect) {
-    let clock = Line::from(format!(" {}", clock(app.remaining))).bold();
-    let score = Line::from(format!("Score {}", app.score)).centered();
-    let quit = Line::from("Esc quit ").dim().right_aligned();
+/// The clock in the top left, and the score in the middle.
+fn render_status(session: &Session, frame: &mut Frame, area: Rect) {
+    let clock = Line::from(format!(" {}", clock(session.remaining))).bold();
+    let score = Line::from(format!("Score {}", session.score)).centered();
     frame.render_widget(clock, area);
     frame.render_widget(score, area);
-    frame.render_widget(quit, area);
 }
 
 /// The question as large as fits, with the answer box beneath it.
-fn render_practice(app: &App, frame: &mut Frame, area: Rect) {
+fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
     const INPUT_HEIGHT: u16 = 3;
     const SPACING: u16 = 1;
 
-    let text = app.problem.to_string();
+    let text = session.problem.to_string();
     let question = BigText::new(&text);
     let room = area.inner(Margin::new(2, 1));
     let room = Size::new(
@@ -63,31 +65,31 @@ fn render_practice(app: &App, frame: &mut Frame, area: Rect) {
     .areas(area);
     frame.render_widget(&question, question_area.inner(Margin::new(2, 0)));
     let input = input.centered_horizontally(Constraint::Length(INPUT_WIDTH));
-    render_input(app, frame, input);
+    render_input(&session.input, frame, input);
 }
 
 /// The answer box, with the terminal cursor just after what has been typed.
-fn render_input(app: &App, frame: &mut Frame, area: Rect) {
+fn render_input(input: &str, frame: &mut Frame, area: Rect) {
     let block = Block::bordered().border_style(Style::new().dim());
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    frame.render_widget(Line::from(app.input.as_str()).centered(), inner);
+    frame.render_widget(Line::from(input).centered(), inner);
 
     // Input is ASCII, so its length in bytes is its width in cells.
-    let width = app.input.len() as u16;
+    let width = input.len() as u16;
     let x = inner.x + inner.width.saturating_sub(width) / 2 + width;
     frame.set_cursor_position(Position::new(x, inner.y));
 }
 
-fn render_summary(app: &App, frame: &mut Frame, area: Rect) {
-    let pace = match app.time_per_answer() {
+fn render_summary(summary: &Summary, frame: &mut Frame, area: Rect) {
+    let pace = match summary.time_per_answer {
         Some(t) => format!("{:.1} s per answer", t.as_secs_f64()),
         None => "no answers".to_owned(),
     };
     let text = Text::from(vec![
         Line::from("Time's up"),
         Line::default(),
-        Line::from(app.score.to_string()).bold(),
+        Line::from(summary.score.to_string()).bold(),
         Line::from("correct"),
         Line::default(),
         Line::from(pace).dim(),

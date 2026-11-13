@@ -41,7 +41,7 @@ pub struct Attempt {
 
 /// One session, written when it ends.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Session {
+pub struct SessionRecord {
     pub id: String,
     pub start: Timestamp,
     pub end: Timestamp,
@@ -86,7 +86,7 @@ impl Store {
         self.append(&self.attempts_path(), attempt)
     }
 
-    pub fn append_session(&self, session: &Session) -> Result<()> {
+    pub fn append_session(&self, session: &SessionRecord) -> Result<()> {
         self.append(&self.sessions_path(), session)
     }
 
@@ -94,7 +94,7 @@ impl Store {
         read(&self.attempts_path())
     }
 
-    pub fn sessions(&self) -> Result<Loaded<Session>> {
+    pub fn sessions(&self) -> Result<Loaded<SessionRecord>> {
         read(&self.sessions_path())
     }
 
