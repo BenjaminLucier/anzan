@@ -37,6 +37,9 @@ pub enum Kind {
     Compound,
     #[serde(rename = "rule_of_72")]
     Doubling,
+    Dice,
+    Coins,
+    ExpectedValue,
 }
 
 impl Kind {
@@ -61,6 +64,9 @@ impl Kind {
         Kind::BasisPoints,
         Kind::Compound,
         Kind::Doubling,
+        Kind::Dice,
+        Kind::Coins,
+        Kind::ExpectedValue,
     ];
 
     /// The kinds a session asks unless told otherwise: the four basic
@@ -89,6 +95,9 @@ impl Kind {
             Kind::BasisPoints => "bps",
             Kind::Compound => "compound",
             Kind::Doubling => "rule_of_72",
+            Kind::Dice => "dice",
+            Kind::Coins => "coins",
+            Kind::ExpectedValue => "expected_value",
         }
     }
 
@@ -114,6 +123,9 @@ impl Kind {
             Kind::BasisPoints => "Basis points",
             Kind::Compound => "Compound growth",
             Kind::Doubling => "Rule of 72",
+            Kind::Dice => "Dice",
+            Kind::Coins => "Coin flips",
+            Kind::ExpectedValue => "Expected value",
         }
     }
 }
@@ -128,6 +140,7 @@ impl Kind {
                 Group::Percentages
             }
             Kind::BasisPoints | Kind::Compound | Kind::Doubling => Group::Finance,
+            Kind::Dice | Kind::Coins | Kind::ExpectedValue => Group::Probability,
         }
     }
 }
@@ -140,15 +153,17 @@ pub enum Group {
     NumberTheory,
     Percentages,
     Finance,
+    Probability,
 }
 
 impl Group {
-    pub const ALL: [Group; 5] = [
+    pub const ALL: [Group; 6] = [
         Group::Arithmetic,
         Group::Powers,
         Group::NumberTheory,
         Group::Percentages,
         Group::Finance,
+        Group::Probability,
     ];
 
     pub fn label(self) -> &'static str {
@@ -158,6 +173,7 @@ impl Group {
             Group::NumberTheory => "Number theory",
             Group::Percentages => "Fractions and percentages",
             Group::Finance => "Finance",
+            Group::Probability => "Probability",
         }
     }
 
@@ -342,6 +358,23 @@ pub enum Problem {
     Doubling {
         rate: i64,
     },
+    /// The chance that two fair dice total `total`.
+    Dice {
+        total: i64,
+    },
+    /// The chance of exactly `heads` heads in `flips` fair coin flips.
+    Coins {
+        heads: i64,
+        flips: i64,
+    },
+    /// The expected value of a bet that wins `win` with chance `num/den`
+    /// and otherwise loses `lose`.
+    ExpectedValue {
+        win: i64,
+        num: i64,
+        den: i64,
+        lose: i64,
+    },
 }
 
 impl Problem {
@@ -375,6 +408,9 @@ impl Problem {
             Problem::BasisPoints { .. } => Kind::BasisPoints,
             Problem::Compound { .. } => Kind::Compound,
             Problem::Doubling { .. } => Kind::Doubling,
+            Problem::Dice { .. } => Kind::Dice,
+            Problem::Coins { .. } => Kind::Coins,
+            Problem::ExpectedValue { .. } => Kind::ExpectedValue,
         }
     }
 
@@ -400,7 +436,10 @@ impl Problem {
             | Problem::Sqrt { .. }
             | Problem::BasisPoints { .. }
             | Problem::Compound { .. }
-            | Problem::Doubling { .. } => None,
+            | Problem::Doubling { .. }
+            | Problem::Dice { .. }
+            | Problem::Coins { .. }
+            | Problem::ExpectedValue { .. } => None,
         }
     }
 
@@ -455,6 +494,16 @@ impl Problem {
             Problem::Doubling { rate } => {
                 Answer::Approx(ratio(72, rate), Tolerance::Relative(0.05))
             }
+            Problem::Dice { total } => Answer::Exact(ratio(6 - (total - 7).abs(), 36)),
+            Problem::Coins { heads, flips } => {
+                Answer::Exact(ratio(choose(flips, heads), 1 << flips))
+            }
+            Problem::ExpectedValue {
+                win,
+                num,
+                den,
+                lose,
+            } => Answer::Exact(ratio(win * num - lose * (den - num), den)),
         }
     }
 }
@@ -514,6 +563,23 @@ impl Problem {
                 ),
             ]),
             Problem::Doubling { rate } => Expr::text(format!("{rate}%")),
+            Problem::Dice { total } => Expr::text(total.to_string()),
+            Problem::Coins { heads, flips } => Expr::text(format!("{heads} of {flips}")),
+            Problem::ExpectedValue {
+                win,
+                num,
+                den,
+                lose,
+            } => {
+                let odds =
+                    |n: i64| Expr::frac(Expr::text(n.to_string()), Expr::text(den.to_string()));
+                Expr::Row(vec![
+                    odds(num),
+                    Expr::text(format!("→ +{win},")),
+                    odds(den - num),
+                    Expr::text(format!("→ −{lose}")),
+                ])
+            }
         }
     }
 
@@ -548,6 +614,9 @@ impl Problem {
             },
             Problem::Compound { .. } => Some("compound growth, within 0.5%"),
             Problem::Doubling { .. } => Some("years to double, by the rule of 72"),
+            Problem::Dice { .. } => Some("chance two dice total this, as a fraction"),
+            Problem::Coins { .. } => Some("chance of exactly this many heads in so many flips"),
+            Problem::ExpectedValue { .. } => Some("expected value: chance → payoff"),
             _ => None,
         }
     }
@@ -577,6 +646,11 @@ fn ratio(num: i64, den: i64) -> Rational {
 /// `x` rounded to 6 decimal places, as an exact value to compare with.
 fn approx(x: f64) -> Rational {
     Rational::new((x * 1e6).round() as i128, 1_000_000).unwrap_or(Rational::ZERO)
+}
+
+/// The number of ways to choose `k` of `n`.
+fn choose(n: i64, k: i64) -> i64 {
+    (0..k).fold(1, |acc, i| acc * (n - i) / (i + 1))
 }
 
 /// `1,000,000`.
@@ -617,6 +691,20 @@ impl fmt::Display for Problem {
                 BpTo::Amount => write!(f, "{}", self.expr()),
             },
             Problem::Doubling { rate } => write!(f, "Years to double at {rate}%"),
+            Problem::Dice { total } => write!(f, "Chance two dice total {total}"),
+            Problem::Coins { heads, flips } => {
+                write!(f, "Chance of {heads} heads in {flips} flips")
+            }
+            Problem::ExpectedValue {
+                win,
+                num,
+                den,
+                lose,
+            } => write!(
+                f,
+                "EV: {num}/{den} win {win}, {}/{den} lose {lose}",
+                den - num
+            ),
             _ => write!(f, "{}", self.expr()),
         }
     }

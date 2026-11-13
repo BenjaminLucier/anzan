@@ -95,6 +95,7 @@ Answers can be written however is natural:
 | Number theory             | `divisible`, `prime`, `factorize`                                        |
 | Fractions and percentages | `convert` (fraction ↔ decimal ↔ percent), `percent_of`, `percent_change`, `successive` (+20% then −10%) |
 | Finance                   | `bps` (basis points), `compound` (growth over years), `rule_of_72` (doubling time) |
+| Probability               | `dice` (two dice totalling n), `coins` (k heads in n flips), `expected_value` (of a bet) |
 
 The default is the four basic operations: addition and subtraction up to
 100 + 100, and multiplication and division up to 12 × 100.

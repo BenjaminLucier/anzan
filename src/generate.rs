@@ -6,6 +6,7 @@ mod fractions;
 mod number_theory;
 mod percent;
 mod powers;
+mod probability;
 
 use std::fmt;
 
@@ -19,6 +20,7 @@ pub use self::{
     number_theory::NumberTheory,
     percent::Percent,
     powers::Powers,
+    probability::Probability,
 };
 
 use crate::problem::{Kind, Problem};
@@ -107,6 +109,7 @@ pub struct Settings {
     pub fractions: Fractions,
     pub percent: Percent,
     pub finance: Finance,
+    pub probability: Probability,
 }
 
 impl Default for Settings {
@@ -121,6 +124,7 @@ impl Default for Settings {
             fractions: Fractions::default(),
             percent: Percent::default(),
             finance: Finance::default(),
+            probability: Probability::default(),
         }
     }
 }
@@ -138,7 +142,8 @@ impl Settings {
         self.number_theory.validate()?;
         self.fractions.validate()?;
         self.percent.validate()?;
-        self.finance.validate()
+        self.finance.validate()?;
+        self.probability.validate()
     }
 
     /// # Panics
@@ -171,6 +176,9 @@ impl Settings {
             Kind::BasisPoints => self.finance.basis_points(rng),
             Kind::Compound => self.finance.compound(rng),
             Kind::Doubling => self.finance.doubling(rng),
+            Kind::Dice => self.probability.dice(rng),
+            Kind::Coins => self.probability.coins(rng),
+            Kind::ExpectedValue => self.probability.expected_value(rng),
         }
     }
 }
