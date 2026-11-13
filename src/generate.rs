@@ -1,6 +1,7 @@
 //! Generators that produce problems at random.
 
 mod arithmetic;
+mod finance;
 mod fractions;
 mod number_theory;
 mod percent;
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 pub use self::{
     arithmetic::{AddSub, LongMul, MulDiv},
+    finance::Finance,
     fractions::Fractions,
     number_theory::NumberTheory,
     percent::Percent,
@@ -104,6 +106,7 @@ pub struct Settings {
     pub number_theory: NumberTheory,
     pub fractions: Fractions,
     pub percent: Percent,
+    pub finance: Finance,
 }
 
 impl Default for Settings {
@@ -117,6 +120,7 @@ impl Default for Settings {
             number_theory: NumberTheory::default(),
             fractions: Fractions::default(),
             percent: Percent::default(),
+            finance: Finance::default(),
         }
     }
 }
@@ -133,7 +137,8 @@ impl Settings {
         self.powers.validate()?;
         self.number_theory.validate()?;
         self.fractions.validate()?;
-        self.percent.validate()
+        self.percent.validate()?;
+        self.finance.validate()
     }
 
     /// # Panics
@@ -162,6 +167,10 @@ impl Settings {
             Kind::PercentOf => self.percent.of(rng),
             Kind::PercentChange => self.percent.change(rng),
             Kind::Successive => self.percent.successive(rng),
+            Kind::Sqrt => self.powers.sqrt(rng),
+            Kind::BasisPoints => self.finance.basis_points(rng),
+            Kind::Compound => self.finance.compound(rng),
+            Kind::Doubling => self.finance.doubling(rng),
         }
     }
 }

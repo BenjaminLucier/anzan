@@ -31,6 +31,12 @@ pub enum Kind {
     PercentOf,
     PercentChange,
     Successive,
+    Sqrt,
+    #[serde(rename = "bps")]
+    BasisPoints,
+    Compound,
+    #[serde(rename = "rule_of_72")]
+    Doubling,
 }
 
 impl Kind {
@@ -51,6 +57,10 @@ impl Kind {
         Kind::PercentOf,
         Kind::PercentChange,
         Kind::Successive,
+        Kind::Sqrt,
+        Kind::BasisPoints,
+        Kind::Compound,
+        Kind::Doubling,
     ];
 
     /// The kinds a session asks unless told otherwise: the four basic
@@ -75,6 +85,10 @@ impl Kind {
             Kind::PercentOf => "percent_of",
             Kind::PercentChange => "percent_change",
             Kind::Successive => "successive",
+            Kind::Sqrt => "sqrt",
+            Kind::BasisPoints => "bps",
+            Kind::Compound => "compound",
+            Kind::Doubling => "rule_of_72",
         }
     }
 
@@ -96,6 +110,10 @@ impl Kind {
             Kind::PercentOf => "Percent of",
             Kind::PercentChange => "Percent change",
             Kind::Successive => "Successive changes",
+            Kind::Sqrt => "Square roots",
+            Kind::BasisPoints => "Basis points",
+            Kind::Compound => "Compound growth",
+            Kind::Doubling => "Rule of 72",
         }
     }
 }
@@ -132,6 +150,18 @@ impl Form {
             Form::Percent => "a percentage",
         }
     }
+}
+
+/// What a basis-point question asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BpTo {
+    /// 150 bp as a percentage: 1.5.
+    Percent,
+    /// 0.25% in basis points: 25.
+    Points,
+    /// 35 bp of an amount.
+    Amount,
 }
 
 /// Decimal places wanted when an answer does not terminate: 1/7 ≈ 0.1429.
@@ -240,6 +270,29 @@ pub enum Problem {
         first: i64,
         second: i64,
     },
+    /// √n, to two decimal places.
+    Sqrt {
+        n: i64,
+    },
+    /// `bp` basis points, converted or applied to `amount`.
+    #[serde(rename = "bps")]
+    BasisPoints {
+        bp: i64,
+        to: BpTo,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        amount: Option<i64>,
+    },
+    /// `principal` grown at `rate`% a year for `years` years.
+    Compound {
+        principal: i64,
+        rate: i64,
+        years: i64,
+    },
+    /// Years to double at `rate`% a year, by the rule of 72.
+    #[serde(rename = "rule_of_72")]
+    Doubling {
+        rate: i64,
+    },
 }
 
 impl Problem {
@@ -269,6 +322,10 @@ impl Problem {
             Problem::PercentOf { .. } => Kind::PercentOf,
             Problem::PercentChange { .. } => Kind::PercentChange,
             Problem::Successive { .. } => Kind::Successive,
+            Problem::Sqrt { .. } => Kind::Sqrt,
+            Problem::BasisPoints { .. } => Kind::BasisPoints,
+            Problem::Compound { .. } => Kind::Compound,
+            Problem::Doubling { .. } => Kind::Doubling,
         }
     }
 
@@ -290,7 +347,11 @@ impl Problem {
             | Problem::Convert { .. }
             | Problem::PercentOf { .. }
             | Problem::PercentChange { .. }
-            | Problem::Successive { .. } => None,
+            | Problem::Successive { .. }
+            | Problem::Sqrt { .. }
+            | Problem::BasisPoints { .. }
+            | Problem::Compound { .. }
+            | Problem::Doubling { .. } => None,
         }
     }
 
@@ -324,6 +385,26 @@ impl Problem {
             Problem::Successive { first, second } => {
                 // (1 + a)(1 + b) − 1 = a + b + ab, in percent.
                 Answer::Exact(ratio(100 * (first + second) + first * second, 100))
+            }
+            Problem::Sqrt { n } => Answer::Approx(approx((n as f64).sqrt()), Tolerance::Places(2)),
+            Problem::BasisPoints { bp, to, amount } => match to {
+                BpTo::Percent => Answer::Exact(ratio(bp, 100)),
+                BpTo::Points => Answer::int(bp),
+                BpTo::Amount => Answer::Exact(ratio(bp * amount.unwrap_or(0), 10_000)),
+            },
+            Problem::Compound {
+                principal,
+                rate,
+                years,
+            } => {
+                let growth = (1.0 + rate as f64 / 100.0_f64).powi(years as i32);
+                Answer::Approx(
+                    approx(principal as f64 * growth),
+                    Tolerance::Relative(0.005),
+                )
+            }
+            Problem::Doubling { rate } => {
+                Answer::Approx(ratio(72, rate), Tolerance::Relative(0.05))
             }
         }
     }
@@ -366,6 +447,24 @@ impl Problem {
                 signed_percent(first),
                 signed_percent(second)
             )),
+            Problem::Sqrt { n } => Expr::sqrt(Expr::text(n.to_string())),
+            Problem::BasisPoints { bp, to, amount } => Expr::text(match to {
+                BpTo::Percent => format!("{bp} bp"),
+                BpTo::Points => format!("{}%", ratio(bp, 100)),
+                BpTo::Amount => format!("{bp} bp of {}", thousands(amount.unwrap_or(0))),
+            }),
+            Problem::Compound {
+                principal,
+                rate,
+                years,
+            } => Expr::Row(vec![
+                Expr::text(format!("{} × ", thousands(principal))),
+                Expr::pow(
+                    Expr::text(ratio(100 + rate, 100).to_string()),
+                    Expr::text(years.to_string()),
+                ),
+            ]),
+            Problem::Doubling { rate } => Expr::text(format!("{rate}%")),
         }
     }
 
@@ -392,6 +491,14 @@ impl Problem {
             }),
             Problem::PercentChange { .. } => Some("percentage change"),
             Problem::Successive { .. } => Some("net percentage change"),
+            Problem::Sqrt { .. } => Some("to 2 decimal places"),
+            Problem::BasisPoints { to, .. } => match to {
+                BpTo::Percent => Some("as a percentage"),
+                BpTo::Points => Some("in basis points"),
+                BpTo::Amount => None,
+            },
+            Problem::Compound { .. } => Some("compound growth, within 0.5%"),
+            Problem::Doubling { .. } => Some("years to double, by the rule of 72"),
             _ => None,
         }
     }
@@ -418,6 +525,24 @@ fn ratio(num: i64, den: i64) -> Rational {
     Rational::new(num.into(), den.into()).unwrap_or(Rational::ZERO)
 }
 
+/// `x` rounded to 6 decimal places, as an exact value to compare with.
+fn approx(x: f64) -> Rational {
+    Rational::new((x * 1e6).round() as i128, 1_000_000).unwrap_or(Rational::ZERO)
+}
+
+/// `1,000,000`.
+fn thousands(n: i64) -> String {
+    let digits = n.unsigned_abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if n < 0 { format!("−{out}") } else { out }
+}
+
 /// `+20%` or `−10%`.
 fn signed_percent(p: i64) -> String {
     if p < 0 {
@@ -437,6 +562,12 @@ impl fmt::Display for Problem {
             Problem::Convert { to, .. } => write!(f, "{} as {}", self.expr(), to.name()),
             Problem::PercentChange { from, to } => write!(f, "% change from {from} to {to}"),
             Problem::Successive { .. } => write!(f, "Net % change of {}", self.expr()),
+            Problem::BasisPoints { to, .. } => match to {
+                BpTo::Percent => write!(f, "{} as a percentage", self.expr()),
+                BpTo::Points => write!(f, "{} in basis points", self.expr()),
+                BpTo::Amount => write!(f, "{}", self.expr()),
+            },
+            Problem::Doubling { rate } => write!(f, "Years to double at {rate}%"),
             _ => write!(f, "{}", self.expr()),
         }
     }
@@ -536,6 +667,43 @@ mod tests {
             second: 15,
         };
         assert_eq!(p.answer().to_string(), "32.25");
+    }
+
+    #[test]
+    fn estimation_and_finance() {
+        let p = Problem::Sqrt { n: 50 };
+        assert_eq!(p.to_string(), "√50");
+        assert!(p.answer().check("7.07") && p.answer().check("7.071"));
+        assert!(!p.answer().check("7.1"));
+
+        let bps = |bp, to, amount| Problem::BasisPoints { bp, to, amount };
+        let p = bps(150, BpTo::Percent, None);
+        assert_eq!(
+            (p.to_string().as_str(), p.answer().to_string()),
+            ("150 bp as a percentage", "1.5".into())
+        );
+        let p = bps(25, BpTo::Points, None);
+        assert_eq!(
+            (p.to_string().as_str(), p.answer().to_string()),
+            ("0.25% in basis points", "25".into())
+        );
+        let p = bps(35, BpTo::Amount, Some(2_000_000));
+        assert_eq!(
+            (p.to_string().as_str(), p.answer().to_string()),
+            ("35 bp of 2,000,000", "7000".into())
+        );
+
+        let p = Problem::Compound {
+            principal: 1000,
+            rate: 10,
+            years: 3,
+        };
+        assert_eq!(p.to_string(), "1,000 × 1.1³");
+        assert!(p.answer().check("1331") && p.answer().check("1330") && !p.answer().check("1300"));
+
+        let p = Problem::Doubling { rate: 8 };
+        assert_eq!(p.to_string(), "Years to double at 8%");
+        assert!(p.answer().check("9") && !p.answer().check("10"));
     }
 
     #[test]

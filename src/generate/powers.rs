@@ -15,6 +15,8 @@ pub struct Powers {
     pub cubes: Range,
     /// Exponents of 2.
     pub twos: Range,
+    /// Numbers to estimate square roots of. Perfect squares are skipped.
+    pub roots: Range,
 }
 
 impl Default for Powers {
@@ -23,6 +25,7 @@ impl Default for Powers {
             squares: Range::new(2, 30),
             cubes: Range::new(2, 12),
             twos: Range::new(1, 20),
+            roots: Range::new(2, 1_000),
         }
     }
 }
@@ -46,6 +49,15 @@ impl Powers {
         }
     }
 
+    /// "√50": estimate a square root that is not a whole number.
+    pub fn sqrt(&self, rng: &mut impl Rng) -> Problem {
+        let n = (0..10_000)
+            .map(|_| self.roots.sample(rng))
+            .find(|&n| !is_square(n))
+            .unwrap_or(2);
+        Problem::Sqrt { n }
+    }
+
     /// Checks that no answer overflows.
     pub fn validate(&self) -> Result<(), String> {
         let fits = |r: Range, limit: i64| r.lo() >= -limit && r.hi() <= limit;
@@ -55,8 +67,18 @@ impl Powers {
         if self.twos.lo() < 0 || self.twos.hi() > 62 {
             return Err("`powers.twos` must be within [0, 62]".into());
         }
+        if self.roots.lo() < 2 || self.roots.hi() > 1_000_000_000 || self.roots.hi() < 3 {
+            return Err(
+                "`powers.roots` must lie within [2, 1000000000] and include a non-square".into(),
+            );
+        }
         Ok(())
     }
+}
+
+fn is_square(n: i64) -> bool {
+    let root = (n as f64).sqrt().round() as i64;
+    root * root == n
 }
 
 #[cfg(test)]
@@ -77,6 +99,18 @@ mod tests {
             prop_assert!(p.cubes.contains(base));
             let Problem::PowerOfTwo { exp } = p.power_of_two(&mut rng) else { panic!() };
             prop_assert!(p.twos.contains(exp));
+        }
+    }
+
+    #[test]
+    fn roots_are_never_whole() {
+        let p = Powers::default();
+        let mut rng = StdRng::seed_from_u64(0);
+        for _ in 0..2_000 {
+            let Problem::Sqrt { n } = p.sqrt(&mut rng) else {
+                panic!()
+            };
+            assert!(p.roots.contains(n) && !is_square(n), "{n}");
         }
     }
 

@@ -154,7 +154,14 @@ fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
     if let Some(correction) = &session.correction {
         let line = Line::from(vec![
             Span::from("✗ ").red(),
-            Span::from(format!("{} = ", correction.question)).dim(),
+            Span::from(correction.question.as_str()).dim(),
+            // Approximate answers carry their own `≈`.
+            Span::from(if correction.answer.starts_with('≈') {
+                " "
+            } else {
+                " = "
+            })
+            .dim(),
             Span::from(correction.answer.as_str()).bold(),
         ]);
         frame.render_widget(line.centered(), below);
