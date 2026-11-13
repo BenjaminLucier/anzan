@@ -183,6 +183,13 @@ impl App {
             self.quit = true;
             return;
         }
+        // Other chords, such as Ctrl-U or Alt-D, are not the plain letter.
+        if key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return;
+        }
         // The help takes every key until it is closed.
         if self.help {
             if matches!(key.code, KeyCode::Esc | KeyCode::Char('?' | 'q')) {
@@ -546,6 +553,16 @@ mod tests {
             panic!("expected the session to be recorded");
         };
         assert!(!session.completed);
+    }
+
+    #[test]
+    fn chords_are_not_their_letters() {
+        let (mut app, t0) = new_app();
+        app.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::ALT), t0);
+        assert!(session(&app).input.is_empty());
+        press(&mut app, KeyCode::Esc, t0);
+        app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL), t0);
+        assert!(!app.quit);
     }
 
     #[test]
