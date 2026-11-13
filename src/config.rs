@@ -16,6 +16,7 @@ use crate::{
     drill::{DrillConfig, Mode},
     generate::Settings,
     stats::Scoring,
+    theme::ThemeConfig,
 };
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -25,6 +26,7 @@ pub struct Config {
     pub problems: Settings,
     pub drill: DrillConfig,
     pub scoring: Scoring,
+    pub theme: ThemeConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +131,14 @@ pub fn config_path() -> Result<PathBuf> {
     }
     let dirs = etcetera::choose_base_strategy().context("finding the home directory")?;
     Ok(dirs.config_dir().join("anzan").join("config.toml"))
+}
+
+/// The folder of extra colour themes, `themes/` beside the config file.
+pub fn themes_dir(config_path: &Path) -> PathBuf {
+    config_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join("themes")
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Rect, Size},
-    style::{Style, Stylize},
+    style::Style,
     text::Line,
     widgets::Widget,
 };
@@ -67,11 +67,21 @@ impl Grid {
 pub struct Drawing<'a> {
     grid: Option<Grid>,
     text: &'a str,
+    style: Style,
 }
 
 impl<'a> Drawing<'a> {
     pub fn new(grid: Option<Grid>, text: &'a str) -> Self {
-        Self { grid, text }
+        Self {
+            grid,
+            text,
+            style: Style::new().bold(),
+        }
+    }
+
+    pub fn style(mut self, style: Style) -> Self {
+        self.style = style;
+        self
     }
 
     fn fitting(&self, area: Size) -> Option<&Grid> {
@@ -89,7 +99,7 @@ impl<'a> Drawing<'a> {
 impl Widget for &Drawing<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let Some(grid) = self.fitting(area.as_size()) else {
-            let line = Line::from(self.text).bold().centered();
+            let line = Line::from(self.text).style(self.style).centered();
             line.render(area.centered_vertically(Constraint::Length(1)), buf);
             return;
         };
@@ -100,7 +110,7 @@ impl Widget for &Drawing<'_> {
                 if c != ' ' {
                     buf[(x0 + x as u16, y0 + y as u16)]
                         .set_char(c)
-                        .set_style(Style::new().bold());
+                        .set_style(self.style);
                 }
             }
         }

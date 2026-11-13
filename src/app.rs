@@ -26,6 +26,7 @@ use crate::{
     history::History,
     stats::report::{self, Fingerprint},
     store::{Attempt, SessionRecord},
+    theme::Theme,
 };
 
 /// Something that happened and should be saved.
@@ -71,6 +72,9 @@ pub struct App {
     pub quit: bool,
     /// Whether the key help is showing over the screen.
     pub help: bool,
+    /// The themes on offer, never empty, and the one in use.
+    themes: Vec<Theme>,
+    theme: usize,
 }
 
 impl App {
@@ -84,7 +88,27 @@ impl App {
             screen: Screen::Menu(Menu::default()),
             quit: false,
             help: false,
+            themes: vec![Theme::terminal()],
+            theme: 0,
         }
+    }
+
+    /// Offers `themes`, starting with the one at `current`.
+    pub fn with_themes(mut self, themes: Vec<Theme>, current: usize) -> Self {
+        if current < themes.len() {
+            self.themes = themes;
+            self.theme = current;
+        }
+        self
+    }
+
+    pub fn theme(&self) -> &Theme {
+        &self.themes[self.theme]
+    }
+
+    /// Moves on to the next theme, for this run only.
+    pub fn cycle_theme(&mut self) {
+        self.theme = (self.theme + 1) % self.themes.len();
     }
 
     /// Starts from what has been practised before.
@@ -154,6 +178,12 @@ impl App {
             (Screen::Menu(_) | Screen::Dashboard(_), KeyCode::Char('?')) => self.help = true,
             (Screen::Menu(_), KeyCode::Esc | KeyCode::Char('q')) => self.quit = true,
             (Screen::Menu(_), KeyCode::Enter) => self.start(now),
+            (Screen::Menu(_) | Screen::Dashboard(_), KeyCode::Char('t')) => self.cycle_theme(),
+            (Screen::Menu(menu), KeyCode::Char(' '))
+                if menu.selected(&self.config) == Item::Theme =>
+            {
+                self.cycle_theme();
+            }
             (Screen::Menu(_) | Screen::Summary(_), KeyCode::Char('d')) => {
                 self.open_dashboard(now);
             }
@@ -740,5 +770,31 @@ mod tests {
         let (mut app, t0) = new_app();
         press(&mut app, KeyCode::Char('?'), t0);
         assert!(!app.help);
+    }
+
+    #[test]
+    fn t_cycles_themes_outside_practice() {
+        let t0 = Instant::now();
+        let themes = crate::theme::catalog(None);
+        let count = themes.len();
+        let mut app = App::new(
+            Config::default(),
+            StdRng::seed_from_u64(0),
+            t0,
+            wall_epoch(),
+        )
+        .with_themes(themes, 1);
+        assert_eq!(app.theme().name, "catppuccin-latte");
+        press(&mut app, KeyCode::Char('t'), t0);
+        assert_eq!(app.theme().name, "catppuccin-frappe");
+        for _ in 0..count - 2 {
+            press(&mut app, KeyCode::Char('t'), t0);
+        }
+        assert_eq!(app.theme().name, crate::theme::TERMINAL, "wraps around");
+        // During practice, t is just a character.
+        let (mut app, t0) = new_app();
+        let before = app.theme().name.clone();
+        press(&mut app, KeyCode::Char('t'), t0);
+        assert_eq!(app.theme().name, before);
     }
 }

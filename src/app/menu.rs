@@ -43,7 +43,7 @@ impl Panel {
     pub fn items(self) -> Vec<Item> {
         match self {
             Panel::Mode => Mode::ALL.into_iter().map(Item::Mode).collect(),
-            Panel::Session => vec![Item::Duration, Item::Submit],
+            Panel::Session => vec![Item::Duration, Item::Submit, Item::Theme],
             Panel::Group(g) => g.kinds().map(Item::Kind).collect(),
         }
     }
@@ -55,6 +55,8 @@ pub enum Item {
     Mode(Mode),
     Duration,
     Submit,
+    /// The colour theme, which the app itself cycles.
+    Theme,
     Kind(Kind),
 }
 
@@ -123,7 +125,7 @@ impl Menu {
     /// Toggles or steps the selected row.
     pub fn activate(&self, config: &mut Config) {
         match self.selected(config) {
-            Item::Mode(_) => {}
+            Item::Mode(_) | Item::Theme => {}
             Item::Duration => {
                 let current = config.session.duration;
                 config.session.duration = DURATIONS
@@ -229,8 +231,12 @@ mod tests {
         let mut menu = on(Panel::Session);
         let mut config = Config::default();
         menu.step(&mut config, false);
-        menu.step(&mut config, false);
         assert_eq!(menu.selected(&config), Item::Submit);
+        menu.step(&mut config, false);
+        assert_eq!(menu.selected(&config), Item::Theme);
+        menu.step(&mut config, false);
+        assert_eq!(menu.selected(&config), Item::Theme, "stops at the end");
+        menu.step(&mut config, true);
         menu.activate(&mut config);
         assert_eq!(config.session.submit, Submit::Enter);
     }

@@ -1,7 +1,7 @@
 //! Drawing the screens.
 //!
-//! Styles use only modifiers (bold, dim), never colours, so the terminal's
-//! own theme shows through.
+//! Every style comes from the theme in effect, which may be the terminal's
+//! own colours.
 
 mod bitmap;
 mod dashboard;
@@ -15,7 +15,6 @@ use std::time::Duration;
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Margin, Position, Rect, Size},
-    style::{Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Clear, Padding, Paragraph},
 };
@@ -24,6 +23,7 @@ use self::grid::Drawing;
 use crate::{
     app::{App, MAX_INPUT, Screen, Session, Summary},
     config::Submit,
+    theme::Theme,
 };
 
 /// Width of the answer box: the longest input, the cursor after it, one
@@ -31,6 +31,8 @@ use crate::{
 const INPUT_WIDTH: u16 = MAX_INPUT as u16 + 4;
 
 pub fn render(app: &App, frame: &mut Frame) {
+    let t = app.theme();
+    frame.render_widget(Block::new().style(t.base()), frame.area());
     let [top, body] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(frame.area());
     let hint = match app.screen {
@@ -39,18 +41,18 @@ pub fn render(app: &App, frame: &mut Frame) {
         Screen::Summary(_) => "Enter again · d stats · Esc menu ",
         Screen::Dashboard(_) => "? help · Esc menu ",
     };
-    frame.render_widget(Line::from(hint).dim().right_aligned(), top);
+    frame.render_widget(Line::from(hint).style(t.muted()).right_aligned(), top);
     match &app.screen {
-        Screen::Menu(menu) => menu::render(menu, &app.config, frame, body),
+        Screen::Menu(menu) => menu::render(menu, &app.config, t, frame, body),
         Screen::Practice(session) => {
-            render_status(session, frame, top);
-            render_practice(session, frame, body);
+            render_status(session, t, frame, top);
+            render_practice(session, t, frame, body);
         }
-        Screen::Summary(summary) => render_summary(summary, frame, body),
-        Screen::Dashboard(dash) => dashboard::render(dash, app.history(), frame, body),
+        Screen::Summary(summary) => render_summary(summary, t, frame, body),
+        Screen::Dashboard(dash) => dashboard::render(dash, app.history(), t, frame, body),
     }
     if app.help {
-        render_help(&app.screen, frame);
+        render_help(&app.screen, t, frame);
     }
 }
 
@@ -61,6 +63,7 @@ const MENU_KEYS: &[(&str, &str)] = &[
     ("↑ ↓ j k", "move; in Mode, choose the mode"),
     ("Space", "toggle a kind, or change a setting"),
     ("a", "toggle every kind in the group"),
+    ("t", "next colour theme"),
     ("Enter", "start a session"),
     ("d", "open the statistics"),
     ("?", "this help"),
@@ -73,6 +76,7 @@ const DASHBOARD_KEYS: &[(&str, &str)] = &[
     ("1–4", "jump to a list"),
     ("↑ ↓ j k", "select"),
     ("PgDn PgUp J K", "scroll the details"),
+    ("t", "next colour theme"),
     ("?", "this help"),
     ("Esc q", "back to the menu"),
 ];
@@ -85,11 +89,15 @@ const PRACTICE_KEYS: &[(&str, &str)] = &[
 ];
 
 /// A heading, then each key and what it does.
-fn help_section(name: &str, keys: &[(&'static str, &'static str)]) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from(name.to_owned()).bold()];
+fn help_section(
+    t: &Theme,
+    name: &str,
+    keys: &[(&'static str, &'static str)],
+) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(name.to_owned()).style(t.heading())];
     lines.extend(keys.iter().map(|&(k, what)| {
         Line::from(vec![
-            Span::from(format!("  {k:<14}")).bold(),
+            Span::from(format!("  {k:<14}")).style(t.accent()),
             Span::from(what),
         ])
     }));
@@ -97,16 +105,16 @@ fn help_section(name: &str, keys: &[(&'static str, &'static str)]) -> Vec<Line<'
 }
 
 /// A box over the screen listing its keys.
-fn render_help(screen: &Screen, frame: &mut Frame) {
+fn render_help(screen: &Screen, t: &Theme, frame: &mut Frame) {
     let (title, keys): (&str, &[(&str, &str)]) = match screen {
         Screen::Dashboard(_) => ("Statistics", DASHBOARD_KEYS),
         _ => ("Menu", MENU_KEYS),
     };
-    let mut lines = help_section(title, keys);
+    let mut lines = help_section(t, title, keys);
     lines.push(Line::default());
-    lines.extend(help_section("Practice", PRACTICE_KEYS));
+    lines.extend(help_section(t, "Practice", PRACTICE_KEYS));
     lines.push(Line::default());
-    lines.push(Line::from("Esc or ? to close").dim());
+    lines.push(Line::from("Esc or ? to close").style(t.muted()));
     let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4;
     let height = lines.len() as u16 + 2;
     let area = frame
@@ -115,22 +123,31 @@ fn render_help(screen: &Screen, frame: &mut Frame) {
     frame.render_widget(Clear, area);
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .title(" Keys ")
+        .border_style(t.border(true))
+        .style(t.base())
+        .title(Line::from(" Keys ").style(t.border(true)))
         .padding(Padding::horizontal(1));
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 /// The clock in the top left, and the score in the middle.
-fn render_status(session: &Session, frame: &mut Frame, area: Rect) {
-    let clock = Line::from(format!(" {}", clock(session.remaining))).bold();
-    let score = Line::from(format!("Score {}", session.score)).centered();
+fn render_status(session: &Session, t: &Theme, frame: &mut Frame, area: Rect) {
+    // The clock turns to a warning for the last ten seconds.
+    let urgent = session.remaining <= Duration::from_secs(10);
+    let style = if urgent { t.bad() } else { t.heading() };
+    let clock = Line::from(format!(" {}", clock(session.remaining))).style(style.bold());
+    let score = Line::from(vec![
+        Span::from("Score ").style(t.muted()),
+        Span::from(session.score.to_string()).style(t.good().bold()),
+    ])
+    .centered();
     frame.render_widget(clock, area);
     frame.render_widget(score, area);
 }
 
 /// The question as large as fits, with the answer box beneath it, any
 /// correction below that, and key hints at the bottom.
-fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
+fn render_practice(session: &Session, t: &Theme, frame: &mut Frame, area: Rect) {
     const INPUT_HEIGHT: u16 = 3;
     const BELOW: u16 = 2;
     const SPACING: u16 = 1;
@@ -140,11 +157,11 @@ fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
         Submit::Auto => "Tab skip",
         Submit::Enter => "Enter submit · Tab skip",
     };
-    frame.render_widget(Line::from(hint).dim().centered(), hints);
+    frame.render_widget(Line::from(hint).style(t.muted()).centered(), hints);
 
     let text = session.problem.to_string();
     let grid = math::layout(&session.problem.expr()).grid;
-    let question = Drawing::new(Some(grid), &text);
+    let question = Drawing::new(Some(grid), &text).style(t.base().bold());
     let room = area.inner(Margin::new(2, 1));
     let room = Size::new(
         room.width,
@@ -164,31 +181,33 @@ fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
     .spacing(SPACING)
     .areas(area);
     if let Some(prompt) = prompt {
-        frame.render_widget(Line::from(prompt).dim().centered(), prompt_area);
+        frame.render_widget(Line::from(prompt).style(t.muted()).centered(), prompt_area);
     }
     frame.render_widget(&question, question_area.inner(Margin::new(2, 0)));
     let input = input.centered_horizontally(Constraint::Length(INPUT_WIDTH));
-    render_input(&session.input, frame, input);
+    render_input(&session.input, t, frame, input);
     if let Some(correction) = &session.correction {
         let line = Line::from(vec![
-            Span::from("✗ ").red(),
-            Span::from(correction.question.as_str()).dim(),
+            Span::from("✗ ").style(t.bad()),
+            Span::from(correction.question.as_str()).style(t.muted()),
             // Approximate answers carry their own `≈`.
             Span::from(if correction.answer.starts_with('≈') {
                 " "
             } else {
                 " = "
             })
-            .dim(),
-            Span::from(correction.answer.as_str()).bold(),
+            .style(t.muted()),
+            Span::from(correction.answer.as_str()).style(t.good().bold()),
         ]);
         frame.render_widget(line.centered(), below);
     }
 }
 
 /// The answer box, with the terminal cursor just after what has been typed.
-fn render_input(input: &str, frame: &mut Frame, area: Rect) {
-    let block = Block::bordered().border_style(Style::new().dim());
+fn render_input(input: &str, t: &Theme, frame: &mut Frame, area: Rect) {
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(t.border(true));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     frame.render_widget(Line::from(input).centered(), inner);
@@ -199,7 +218,7 @@ fn render_input(input: &str, frame: &mut Frame, area: Rect) {
     frame.set_cursor_position(Position::new(x, inner.y));
 }
 
-fn render_summary(summary: &Summary, frame: &mut Frame, area: Rect) {
+fn render_summary(summary: &Summary, t: &Theme, frame: &mut Frame, area: Rect) {
     let pace = match summary.time_per_answer {
         Some(t) => format!("{:.1} s per answer", t.as_secs_f64()),
         None => "no correct answers".to_owned(),
@@ -212,23 +231,23 @@ fn render_summary(summary: &Summary, frame: &mut Frame, area: Rect) {
         misses.push(format!("{} skipped", summary.skipped));
     }
     let best = match summary.previous_best {
-        None => Line::from("first session with these settings").dim(),
+        None => Line::from("first session with these settings").style(t.muted()),
         Some(best) if summary.score > best => {
-            Line::from(format!("new best, up from {best}")).bold()
+            Line::from(format!("new best, up from {best}")).style(t.warn().bold())
         }
-        Some(best) => Line::from(format!("best {best}")).dim(),
+        Some(best) => Line::from(format!("best {best}")).style(t.muted()),
     };
     let text = Text::from(vec![
-        Line::from(format!("Time's up · {}", summary.mode.label())),
+        Line::from(format!("Time's up · {}", summary.mode.label())).style(t.heading()),
         Line::default(),
-        Line::from(summary.score.to_string()).bold(),
+        Line::from(summary.score.to_string()).style(t.good().bold()),
         Line::from("correct"),
-        Line::from(misses.join(" · ")).dim(),
+        Line::from(misses.join(" · ")).style(t.bad()),
         best,
         Line::default(),
-        Line::from(pace).dim(),
+        Line::from(pace).style(t.muted()),
         Line::default(),
-        Line::from("Enter play again").dim(),
+        Line::from("Enter play again").style(t.muted()),
     ])
     .centered();
     let area = area.centered_vertically(Constraint::Length(text.height() as u16));

@@ -4,8 +4,7 @@
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Rect},
-    style::{Style, Stylize},
-    text::{Line, Text},
+    text::{Line, Span, Text},
     widgets::{Block, BorderType},
 };
 
@@ -17,6 +16,7 @@ use crate::{
     app::{Item, Menu, Panel},
     config::Config,
     drill::Mode,
+    theme::Theme,
 };
 
 /// Width of every panel, borders included.
@@ -25,7 +25,7 @@ const PANEL_WIDTH: u16 = 26;
 /// Most columns of panels to use, however wide the terminal.
 const MAX_COLUMNS: u16 = 4;
 
-pub fn render(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
+pub fn render(menu: &Menu, config: &Config, t: &Theme, frame: &mut Frame, area: Rect) {
     let columns = arrange(area.width);
     let grid_height = columns.iter().map(|c| column_height(c)).max().unwrap_or(0);
     const FOOTER: u16 = 3; // a gap, the mode, the hints
@@ -43,6 +43,7 @@ pub fn render(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
     .areas(area);
     if show_title {
         frame.render_widget(&title, title_area);
+        frame.buffer_mut().set_style(title_area, t.accent());
     }
 
     let width = PANEL_WIDTH * columns.len() as u16;
@@ -54,7 +55,7 @@ pub fn render(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
             let height = panel_height(panel);
             let rect = Rect::new(grid.x + i as u16 * PANEL_WIDTH, y, PANEL_WIDTH, height)
                 .intersection(grid);
-            render_panel(panel, menu, config, panel == focused, frame, rect);
+            render_panel(panel, menu, config, t, panel == focused, frame, rect);
             y += height;
         }
     }
@@ -70,14 +71,14 @@ pub fn render(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
             m.description()
         ),
     };
-    frame.render_widget(Line::from(about_text).dim().centered(), about);
+    frame.render_widget(Line::from(about_text).style(t.muted()).centered(), about);
     let hint = match focused {
         Panel::Mode => "↑↓ mode",
-        Panel::Session => "↑↓ move · Space change",
+        Panel::Session => "↑↓ move · Space change · t theme",
         Panel::Group(_) => "↑↓ move · Space toggle · a all",
     };
     let hint = format!("←→ panel · {hint} · Enter start · d stats");
-    frame.render_widget(Line::from(hint).dim().centered(), hints);
+    frame.render_widget(Line::from(hint).style(t.muted()).centered(), hints);
 }
 
 /// The panels in each column for a terminal `width` cells wide: modes
@@ -124,16 +125,13 @@ fn render_panel(
     panel: Panel,
     menu: &Menu,
     config: &Config,
+    t: &Theme,
     focused: bool,
     frame: &mut Frame,
     area: Rect,
 ) {
     let number = Panel::all().position(|p| p == panel).unwrap_or(0) + 1;
-    let border = if focused {
-        Style::new().bold()
-    } else {
-        Style::new().dim()
-    };
+    let border = t.border(focused);
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(border)
@@ -144,46 +142,69 @@ fn render_panel(
     let lines: Vec<Line> = panel
         .items()
         .into_iter()
-        .map(|item| item_line(item, config, selected == Some(item), inner.width))
+        .map(|item| item_line(item, config, t, selected == Some(item), inner.width))
         .collect();
     frame.render_widget(Text::from(lines), inner);
 }
 
-fn item_line(item: Item, config: &Config, selected: bool, width: u16) -> Line<'static> {
-    let text = match item {
+fn item_line(item: Item, config: &Config, t: &Theme, selected: bool, width: u16) -> Line<'static> {
+    let spans: Vec<Span> = match item {
         Item::Mode(mode) => {
-            let mark = if config.session.mode == mode {
-                "●"
-            } else {
-                "○"
-            };
+            let current = config.session.mode == mode;
+            let mark = if current { "●" } else { "○" };
             // Kanji are two cells wide; pad to the width of two of them.
             let kanji = format!("{:<w$}", mode.kanji(), w = 4 - mode.kanji().chars().count());
-            format!(" {mark} {kanji} {}", mode.label())
+            let label = Span::from(mode.label().to_owned());
+            vec![
+                Span::from(format!(" {mark} ")).style(if current { t.accent() } else { t.muted() }),
+                Span::from(format!("{kanji} ")).style(t.accent()),
+                if current {
+                    label.style(t.accent().bold())
+                } else {
+                    label
+                },
+            ]
         }
-        Item::Duration => setting("Duration", &clock(config.session.duration()), width),
-        Item::Submit => setting("Submit", config.session.submit.name(), width),
+        Item::Duration => setting(t, "Duration", &clock(config.session.duration()), width),
+        Item::Submit => setting(t, "Submit", config.session.submit.name(), width),
+        Item::Theme => setting(t, "Theme", &t.name, width),
         Item::Kind(kind) => {
             let on = config.problems.kinds.contains(&kind);
-            format!(" [{}] {}", if on { "x" } else { " " }, kind.label())
+            let (mark, style) = if on {
+                ("[x]", t.good())
+            } else {
+                ("[ ]", t.muted())
+            };
+            vec![
+                Span::from(" "),
+                Span::from(mark).style(style),
+                Span::from(format!(" {}", kind.label())),
+            ]
         }
     };
     // The selection fills the whole row, as a bar.
-    let text = format!("{text:<w$}", w = usize::from(width));
-    let line = Line::from(text);
-    let current_mode = matches!(item, Item::Mode(m) if m == config.session.mode);
-    match (selected, current_mode) {
-        (true, _) => line.reversed(),
-        (false, true) => line.bold(),
-        (false, false) => line,
+    let used: usize = spans.iter().map(Span::width).sum();
+    let mut spans = spans;
+    spans.push(Span::from(
+        " ".repeat(usize::from(width).saturating_sub(used)),
+    ));
+    let line = Line::from(spans);
+    if selected {
+        line.patch_style(t.selected())
+    } else {
+        line
     }
 }
 
 /// `label` on the left and `value` on the right of a row `width` wide.
-fn setting(label: &str, value: &str, width: u16) -> String {
+fn setting(t: &Theme, label: &str, value: &str, width: u16) -> Vec<Span<'static>> {
     let pad = usize::from(width).saturating_sub(3 + label.len() + value.chars().count());
-    format!(" {label}{} {value} ", " ".repeat(pad))
+    vec![
+        Span::from(format!(" {label}{} ", " ".repeat(pad))),
+        Span::from(format!("{value} ")).style(t.info()),
+    ]
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -204,7 +225,7 @@ mod tests {
     fn columns_are_balanced() {
         let heights =
             |width| -> Vec<u16> { arrange(width).iter().map(|c| column_height(c)).collect() };
-        assert_eq!(heights(PANEL_WIDTH * 4), [13, 13, 11, 10]);
-        assert_eq!(heights(80), [13, 18, 16]);
+        assert_eq!(heights(PANEL_WIDTH * 4), [14, 13, 11, 10]);
+        assert_eq!(heights(80), [14, 18, 16]);
     }
 }

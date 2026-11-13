@@ -35,6 +35,8 @@ pub enum Command {
         #[arg(short, long, value_name = "FILE")]
         output: Option<PathBuf>,
     },
+    /// List the colour themes, and where to add more.
+    Themes,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]

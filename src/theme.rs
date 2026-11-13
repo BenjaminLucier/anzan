@@ -14,6 +14,7 @@
 use std::{fs, path::Path};
 
 use ratatui::style::{Color, Modifier, Style};
+use serde::{Deserialize, Serialize};
 
 /// The name of the theme that uses the terminal's own colours.
 pub const TERMINAL: &str = "terminal";
@@ -246,6 +247,58 @@ pub fn catalog(folder: Option<&Path>) -> Vec<Theme> {
     themes
 }
 
+/// Which theme in `themes` the `[theme]` settings choose. `name` is a
+/// theme's name, or `auto` to pick `light` or `dark` by the terminal's
+/// background, `is_light`, falling back to the terminal's own colours when
+/// that is unknown.
+pub fn choose(
+    themes: &[Theme],
+    settings: &ThemeConfig,
+    is_light: Option<bool>,
+) -> Result<usize, String> {
+    let find = |name: &str| {
+        themes.iter().position(|t| t.name == name).ok_or_else(|| {
+            let names: Vec<&str> = themes.iter().map(|t| t.name.as_str()).collect();
+            format!("no theme named `{name}`; try one of {}", names.join(", "))
+        })
+    };
+    if settings.name != AUTO {
+        return find(&settings.name);
+    }
+    // Check both, so a typo shows up whatever the terminal.
+    let light = find(&settings.light)?;
+    let dark = find(&settings.dark)?;
+    Ok(match is_light {
+        Some(true) => light,
+        Some(false) => dark,
+        None => find(TERMINAL)?,
+    })
+}
+
+/// The `[theme]` section of the config.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ThemeConfig {
+    /// A theme's name, `terminal`, or `auto`.
+    pub name: String,
+    /// The themes `auto` picks on light and dark backgrounds.
+    pub light: String,
+    pub dark: String,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self {
+            name: AUTO.to_owned(),
+            light: "catppuccin-latte".to_owned(),
+            dark: "catppuccin-mocha".to_owned(),
+        }
+    }
+}
+
+/// The theme name that follows the terminal's background.
+pub const AUTO: &str = "auto";
+
 /// Base16 or base24 schemes in `folder`, named after their files.
 /// Files that do not parse are skipped.
 fn load_folder(folder: &Path) -> Vec<Theme> {
@@ -302,6 +355,39 @@ pub fn parse_base16(text: &str) -> Option<Palette> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn choose_follows_the_background() {
+        let themes = catalog(None);
+        let name = |i: usize| themes[i].name.clone();
+        let auto = ThemeConfig::default();
+        assert_eq!(
+            name(choose(&themes, &auto, Some(true)).unwrap()),
+            "catppuccin-latte"
+        );
+        assert_eq!(
+            name(choose(&themes, &auto, Some(false)).unwrap()),
+            "catppuccin-mocha"
+        );
+        assert_eq!(name(choose(&themes, &auto, None).unwrap()), TERMINAL);
+        let fixed = ThemeConfig {
+            name: "dracula".into(),
+            ..auto.clone()
+        };
+        assert_eq!(
+            name(choose(&themes, &fixed, Some(true)).unwrap()),
+            "dracula"
+        );
+        let typo = ThemeConfig {
+            dark: "mocha".into(),
+            ..auto
+        };
+        let err = choose(&themes, &typo, Some(true)).unwrap_err();
+        assert!(
+            err.contains("`mocha`") && err.contains("rose-pine"),
+            "{err}"
+        );
+    }
+
     use super::*;
 
     #[test]

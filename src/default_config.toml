@@ -131,3 +131,14 @@ edit = 0.15       # added for each backspace
 by_submit = true  # compare times only within the same submit mode
 prior = 5.0       # attempts' worth of the overall average a skill starts from
 half_life = 30.0  # days for an attempt's weight to halve; 0 never fades
+
+[theme]
+# Colours. "auto" picks `light` or `dark` to suit the terminal's
+# background; "terminal" uses the terminal's own sixteen colours; or name
+# any theme listed by `anzan themes`. Press t in the app to try others.
+# Extra base16 or base24 schemes, such as those from
+# https://github.com/tinted-theming/schemes, can go in a `themes` folder
+# beside this file.
+name = "auto"
+light = "catppuccin-latte"
+dark = "catppuccin-mocha"

@@ -23,9 +23,11 @@ use crate::{
     problem::{Kind, Problem},
     stats::{
         features::{Feature, canonical},
+        model::Skill,
         report::{Cost, GRID, percentile_curve},
     },
     store::Attempt,
+    theme::Theme,
 };
 
 /// Shades from least to most, for heatmaps.
@@ -34,16 +36,16 @@ const SHADES: [char; 5] = ['·', '░', '▒', '▓', '█'];
 /// Width of the column of lists.
 const SIDE_WIDTH: u16 = 36;
 
-pub fn render(dash: &Dashboard, history: &History, frame: &mut Frame, area: Rect) {
+pub fn render(dash: &Dashboard, history: &History, t: &Theme, frame: &mut Frame, area: Rect) {
     let [main, hints] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     let hint = "←→ list · ↑↓ select · PgUp/PgDn scroll · Esc menu";
-    frame.render_widget(Line::from(hint).dim().centered(), hints);
+    frame.render_widget(Line::from(hint).style(t.muted()).centered(), hints);
 
     let report = &dash.report;
     if report.attempts == 0 {
         let text = Text::from(vec![
             Line::from("Nothing practised yet."),
-            Line::from("Finish a session and come back.").dim(),
+            Line::from("Finish a session and come back.").style(t.muted()),
         ])
         .centered();
         frame.render_widget(text, main.centered_vertically(Constraint::Length(2)));
@@ -53,49 +55,37 @@ pub fn render(dash: &Dashboard, history: &History, frame: &mut Frame, area: Rect
     let side_width = SIDE_WIDTH.min(main.width / 2);
     let [side, details] =
         Layout::horizontal([Constraint::Length(side_width), Constraint::Fill(1)]).areas(main);
-    render_side(dash, frame, side);
+    render_side(dash, t, frame, side);
     match dash.focus {
-        Side::Summary => overview(report, history, frame, details),
+        Side::Summary => overview(report, history, t, frame, details),
         Side::Kinds => match report.kinds.get(dash.selected(Side::Kinds)) {
-            Some(stats) => kind_details(report, history, stats.kind, frame, details),
-            None => empty(frame, details),
+            Some(stats) => kind_details(report, history, stats.kind, t, frame, details),
+            None => empty(t, frame, details),
         },
         Side::Sessions => match report.sessions.get(dash.selected(Side::Sessions)) {
-            Some(session) => session_details(dash, history, session, frame, details),
-            None => empty(frame, details),
+            Some(session) => session_details(dash, history, session, t, frame, details),
+            None => empty(t, frame, details),
         },
         Side::Weak => match report.hardest.get(dash.selected(Side::Weak)) {
             Some(&(Feature::Item(problem), skill)) => {
-                item_details(
-                    dash,
-                    history,
-                    problem,
-                    skill.score,
-                    skill.count,
-                    frame,
-                    details,
-                );
+                item_details(dash, history, problem, skill, t, frame, details);
             }
-            _ => empty(frame, details),
+            _ => empty(t, frame, details),
         },
     }
 }
 
 /// A rounded panel, bold when focused and dim otherwise.
-fn panel(title: String, focused: bool) -> Block<'static> {
-    let style = if focused {
-        Style::new().bold()
-    } else {
-        Style::new().dim()
-    };
+fn panel(t: &Theme, title: String, focused: bool) -> Block<'static> {
+    let style = t.border(focused);
     Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(style)
         .title(Line::from(format!(" {title} ")).style(style))
 }
 
-fn empty(frame: &mut Frame, area: Rect) {
-    frame.render_widget(panel(String::new(), false), area);
+fn empty(t: &Theme, frame: &mut Frame, area: Rect) {
+    frame.render_widget(panel(t, String::new(), false), area);
 }
 
 fn secs(ms: f64) -> String {
@@ -107,7 +97,7 @@ fn local(report: &Report, ts: jiff::Timestamp) -> Zoned {
 }
 
 /// The lists down the left.
-fn render_side(dash: &Dashboard, frame: &mut Frame, area: Rect) {
+fn render_side(dash: &Dashboard, t: &Theme, frame: &mut Frame, area: Rect) {
     let report = &dash.report;
     let kinds_height = report.kinds.len().min(10) as u16 + 2;
     let [summary, kinds, sessions, weak] = Layout::vertical([
@@ -128,14 +118,15 @@ fn render_side(dash: &Dashboard, frame: &mut Frame, area: Rect) {
         )),
     ];
     if report.damaged > 0 {
-        lines.push(Line::from(format!("{} damaged lines skipped", report.damaged)).dim());
+        lines
+            .push(Line::from(format!("{} damaged lines skipped", report.damaged)).style(t.muted()));
     }
     let focused = dash.focus == Side::Summary;
-    let block = numbered(Side::Summary, focused);
+    let block = numbered(t, Side::Summary, focused);
     let summary_text = Paragraph::new(lines).block(block);
     frame.render_widget(
         if focused {
-            summary_text.bold()
+            summary_text.style(t.heading())
         } else {
             summary_text
         },
@@ -147,7 +138,7 @@ fn render_side(dash: &Dashboard, frame: &mut Frame, area: Rect) {
         let stats = format!("{:.0}% {:>5}", k.accuracy() * 100.0, secs(k.median_ms));
         spread(k.kind.label(), &stats, inner)
     });
-    list(dash, Side::Kinds, rows.collect(), frame, kinds);
+    list(dash, Side::Kinds, rows.collect(), t, frame, kinds);
 
     let rows = report.sessions.iter().map(|s| {
         let when = local(report, s.start).strftime("%m-%d %H:%M").to_string();
@@ -158,7 +149,7 @@ fn render_side(dash: &Dashboard, frame: &mut Frame, area: Rect) {
         };
         spread(&format!("{when}  {}", s.mode.label()), &score, inner)
     });
-    list(dash, Side::Sessions, rows.collect(), frame, sessions);
+    list(dash, Side::Sessions, rows.collect(), t, frame, sessions);
 
     let rows = report.hardest.iter().map(|(feature, skill)| {
         let question = match feature {
@@ -167,12 +158,16 @@ fn render_side(dash: &Dashboard, frame: &mut Frame, area: Rect) {
         };
         spread(&question, &format!("{:.1}×", skill.score.exp()), inner)
     });
-    list(dash, Side::Weak, rows.collect(), frame, weak);
+    list(dash, Side::Weak, rows.collect(), t, frame, weak);
 }
 
-fn numbered(side: Side, focused: bool) -> Block<'static> {
-    panel(format!("[{}] {}", side.index() + 1, side.title()), focused)
-        .padding(Padding::horizontal(1))
+fn numbered(t: &Theme, side: Side, focused: bool) -> Block<'static> {
+    panel(
+        t,
+        format!("[{}] {}", side.index() + 1, side.title()),
+        focused,
+    )
+    .padding(Padding::horizontal(1))
 }
 
 /// `left` and `right` at either end of `width` cells, `left` cut short if
@@ -185,23 +180,23 @@ fn spread(left: &str, right: &str, width: usize) -> String {
 }
 
 /// A list down the side, scrolled to keep its selection in view.
-fn list(dash: &Dashboard, side: Side, rows: Vec<String>, frame: &mut Frame, area: Rect) {
+fn list(dash: &Dashboard, side: Side, rows: Vec<String>, t: &Theme, frame: &mut Frame, area: Rect) {
     let focused = dash.focus == side;
     let highlight = if focused {
-        Style::new().reversed()
+        t.selected()
     } else {
         Style::new().bold()
     };
     let list = List::new(rows)
-        .block(numbered(side, focused))
+        .block(numbered(t, side, focused))
         .highlight_style(highlight);
     let mut state = ListState::default().with_selected(Some(dash.selected(side)));
     frame.render_stateful_widget(list, area, &mut state);
 }
 
 /// Everything at a glance: the score trend, practice per day, and speed.
-fn overview(report: &Report, history: &History, frame: &mut Frame, area: Rect) {
-    let block = panel("Overview".into(), false);
+fn overview(report: &Report, history: &History, t: &Theme, frame: &mut Frame, area: Rect) {
+    let block = panel(t, "Overview".into(), false);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let inner = inner.inner(ratatui::layout::Margin::new(1, 0));
@@ -213,22 +208,25 @@ fn overview(report: &Report, history: &History, frame: &mut Frame, area: Rect) {
         Constraint::Fill(1),
     ])
     .areas(inner);
-    render_trend(report, frame, trend);
-    activity(report, frame, activity_area);
+    render_trend(report, t, frame, trend);
+    activity(report, t, frame, activity_area);
     let all = percentile_curve(&history.attempts);
     let since = report.now - RECENT;
     let recent = percentile_curve(history.attempts.iter().filter(|a| a.ts >= since));
-    speed_chart(&all, &recent, frame, speed_area);
+    speed_chart(&all, &recent, t, frame, speed_area);
 }
 
-fn render_trend(report: &Report, frame: &mut Frame, area: Rect) {
+fn render_trend(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
     let [title, spark, note] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(4),
         Constraint::Length(1),
     ])
     .areas(area);
-    frame.render_widget(Line::from("Score with the current settings").bold(), title);
+    frame.render_widget(
+        Line::from("Score with the current settings").style(t.heading()),
+        title,
+    );
     let note_text = match report.trend.as_slice() {
         [] => "No finished sessions with these settings yet.".to_owned(),
         scores => {
@@ -250,12 +248,18 @@ fn render_trend(report: &Report, frame: &mut Frame, area: Rect) {
         .rev()
         .map(|&s| u64::from(s))
         .collect();
-    frame.render_widget(Sparkline::default().data(&shown), spark);
-    frame.render_widget(Line::from(note_text).dim(), note);
+    frame.render_widget(Sparkline::default().data(&shown).style(t.info()), spark);
+    frame.render_widget(Line::from(note_text).style(t.muted()), note);
 }
 
 /// Response time against percentile, recent over all time.
-fn speed_chart(all: &[(f64, f64)], recent: &[(f64, f64)], frame: &mut Frame, area: Rect) {
+fn speed_chart(
+    all: &[(f64, f64)],
+    recent: &[(f64, f64)],
+    t: &Theme,
+    frame: &mut Frame,
+    area: Rect,
+) {
     if all.is_empty() || area.height < 6 {
         return;
     }
@@ -277,7 +281,7 @@ fn speed_chart(all: &[(f64, f64)], recent: &[(f64, f64)], frame: &mut Frame, are
             .name("all time")
             .marker(Marker::Braille)
             .graph_type(GraphType::Line)
-            .style(Style::new().dim())
+            .style(t.muted())
             .data(&all_clipped),
     ];
     if !recent_clipped.is_empty() {
@@ -286,7 +290,7 @@ fn speed_chart(all: &[(f64, f64)], recent: &[(f64, f64)], frame: &mut Frame, are
                 .name("last 7 days")
                 .marker(Marker::Braille)
                 .graph_type(GraphType::Line)
-                .style(Style::new().bold())
+                .style(t.heading())
                 .data(&recent_clipped),
         );
     }
@@ -310,12 +314,12 @@ fn speed_chart(all: &[(f64, f64)], recent: &[(f64, f64)], frame: &mut Frame, are
         .legend_position(Some(LegendPosition::TopLeft));
     let [title_area, chart_area] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-    frame.render_widget(Line::from(title).bold(), title_area);
+    frame.render_widget(Line::from(title).style(t.heading()), title_area);
     frame.render_widget(chart, chart_area);
 }
 
 /// Attempts per day, a column per week, oldest on the left.
-fn activity(report: &Report, frame: &mut Frame, area: Rect) {
+fn activity(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
     const LABEL: u16 = 4;
     let weeks = i64::from(area.width.saturating_sub(LABEL) / 2).clamp(1, 53);
     let today = report.today;
@@ -330,7 +334,7 @@ fn activity(report: &Report, frame: &mut Frame, area: Rect) {
         SHADES[((f * 4.0).ceil() as usize).clamp(1, 4)]
     };
 
-    let mut lines = vec![Line::from("Practice per day").bold()];
+    let mut lines = vec![Line::from("Practice per day").style(t.heading())];
     // Month names over the first week of each month, where they fit.
     let mut months = vec![' '; usize::from(LABEL) + 2 * weeks as usize + 2];
     for w in 0..weeks {
@@ -342,9 +346,9 @@ fn activity(report: &Report, frame: &mut Frame, area: Rect) {
             }
         }
     }
-    lines.push(Line::from(months.into_iter().collect::<String>()).dim());
+    lines.push(Line::from(months.into_iter().collect::<String>()).style(t.muted()));
     for (d, name) in ["Mon", "", "Wed", "", "Fri", "", "Sun"].iter().enumerate() {
-        let mut row = vec![Span::from(format!("{name:<4}")).dim()];
+        let mut row = vec![Span::from(format!("{name:<4}")).style(t.muted())];
         for w in 0..weeks {
             let day: Date = start + (w * 7 + d as i64).days();
             if day > today {
@@ -352,11 +356,15 @@ fn activity(report: &Report, frame: &mut Frame, area: Rect) {
             }
             let n = report.activity.get(&day).copied().unwrap_or(0);
             let cell = Span::from(format!("{} ", level(n)));
-            row.push(if n == 0 { cell.dim() } else { cell });
+            row.push(if n == 0 {
+                cell.style(t.muted())
+            } else {
+                cell.style(t.good())
+            });
         }
         lines.push(Line::from(row));
     }
-    lines.push(Line::from(format!("most in a day: {max}")).dim());
+    lines.push(Line::from(format!("most in a day: {max}")).style(t.muted()));
     frame.render_widget(Paragraph::new(lines), area);
 }
 
@@ -369,8 +377,15 @@ fn month(m: i8) -> &'static str {
 
 /// One kind: its numbers and speed, with the facts behind it where there
 /// are any, and its hardest questions.
-fn kind_details(report: &Report, history: &History, kind: Kind, frame: &mut Frame, area: Rect) {
-    let block = panel(kind.label().into(), false);
+fn kind_details(
+    report: &Report,
+    history: &History,
+    kind: Kind,
+    t: &Theme,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let block = panel(t, kind.label().into(), false);
     let inner = block.inner(area).inner(ratatui::layout::Margin::new(1, 0));
     frame.render_widget(block, area);
 
@@ -409,9 +424,9 @@ fn kind_details(report: &Report, history: &History, kind: Kind, frame: &mut Fram
     frame.render_widget(Line::from(summary), summary_area);
 
     let side_lines = match kind {
-        Kind::Mul | Kind::Div | Kind::LongMul => Some(fact_grid(report)),
-        Kind::Add => Some(costs("Carries", &report.carries, "carries")),
-        Kind::Sub => Some(costs("Borrows", &report.borrows, "borrows")),
+        Kind::Mul | Kind::Div | Kind::LongMul => Some(fact_grid(t, report)),
+        Kind::Add => Some(costs(t, "Carries", &report.carries, "carries")),
+        Kind::Sub => Some(costs(t, "Borrows", &report.borrows, "borrows")),
         _ => None,
     };
     let chart_area = match side_lines {
@@ -430,10 +445,10 @@ fn kind_details(report: &Report, history: &History, kind: Kind, frame: &mut Fram
     let since = report.now - RECENT;
     let all = percentile_curve(attempts.iter().copied());
     let recent = percentile_curve(attempts.iter().copied().filter(|a| a.ts >= since));
-    speed_chart(&all, &recent, frame, chart_area);
+    speed_chart(&all, &recent, t, frame, chart_area);
 
     if !hardest.is_empty() {
-        let mut lines = vec![Line::default(), Line::from("Hardest").bold()];
+        let mut lines = vec![Line::default(), Line::from("Hardest").style(t.heading())];
         for (feature, skill) in hardest {
             lines.push(Line::from(spread(
                 &feature.to_string(),
@@ -445,52 +460,62 @@ fn kind_details(report: &Report, history: &History, kind: Kind, frame: &mut Fram
     }
 }
 
-/// The shade for a struggle score `d` above (or below) the average.
-fn shade(d: f64) -> char {
+/// The heat level, 0 to 4, for a struggle score `d` above (or below) the
+/// average.
+fn level(d: f64) -> usize {
     match d {
-        d if d < -0.2 => SHADES[0],
-        d if d < 0.0 => SHADES[1],
-        d if d < 0.2 => SHADES[2],
-        d if d < 0.5 => SHADES[3],
-        _ => SHADES[4],
+        d if d < -0.2 => 0,
+        d if d < 0.0 => 1,
+        d if d < 0.2 => 2,
+        d if d < 0.5 => 3,
+        _ => 4,
     }
 }
 
 /// The times-table heatmap.
-fn fact_grid(report: &Report) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from("Times tables").bold()];
+fn fact_grid(t: &Theme, report: &Report) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from("Times tables").style(t.heading())];
     let header: String = GRID.map(|b| format!("{b:>3}")).collect();
-    lines.push(Line::from(format!("  ×{header}")).dim());
+    lines.push(Line::from(format!("  ×{header}")).style(t.muted()));
     for (i, a) in GRID.enumerate() {
-        let mut spans = vec![Span::from(format!("{a:>3} ")).dim()];
+        let mut spans = vec![Span::from(format!("{a:>3} ")).style(t.muted())];
         for cell in &report.grid[i] {
             let text = match cell {
-                Some(skill) => shade(skill.score - report.overall).to_string().repeat(2),
+                Some(skill) => {
+                    let level = level(skill.score - report.overall);
+                    spans
+                        .push(Span::from(SHADES[level].to_string().repeat(2)).style(t.heat(level)));
+                    spans.push(Span::from(" "));
+                    continue;
+                }
                 None => "  ".to_owned(),
             };
             spans.push(Span::from(format!("{text} ")));
         }
         lines.push(Line::from(spans));
     }
-    lines.push(Line::from(format!("easy {} hard", SHADES.iter().collect::<String>())).dim());
+    let mut legend = vec![Span::from("easy ").style(t.muted())];
+    legend.extend((0..SHADES.len()).map(|i| Span::from(SHADES[i].to_string()).style(t.heat(i))));
+    legend.push(Span::from(" hard").style(t.muted()));
+    lines.push(Line::from(legend));
     lines
 }
 
 /// How much carries or borrows slow things down.
-fn costs(title: &str, costs: &[Cost], what: &str) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::from(title.to_owned()).bold()];
+fn costs(t: &Theme, title: &str, costs: &[Cost], what: &str) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::from(title.to_owned()).style(t.heading())];
     if costs.is_empty() {
-        lines.push(Line::from("not enough answers yet").dim());
+        lines.push(Line::from("not enough answers yet").style(t.muted()));
     }
     for c in costs {
         // Eight cells is the usual time; each cell either side is 1/16.
         let cells = ((c.factor - 0.5) * 16.0).round().clamp(0.0, 16.0) as usize;
         lines.push(Line::from(vec![
             Span::from(format!("{} {what:<8}{:>5.2}× ", c.steps, c.factor)),
-            Span::from("█".repeat(cells)).dim(),
+            Span::from("█".repeat(cells)).style(t.muted()),
         ]));
     }
-    lines.push(Line::from("× the usual time").dim());
+    lines.push(Line::from("× the usual time").style(t.muted()));
     lines
 }
 
@@ -499,6 +524,7 @@ fn session_details(
     dash: &Dashboard,
     history: &History,
     session: &crate::store::SessionRecord,
+    t: &Theme,
     frame: &mut Frame,
     area: Rect,
 ) {
@@ -506,7 +532,7 @@ fn session_details(
     let when = local(report, session.start)
         .strftime("%a %-d %b %Y, %H:%M")
         .to_string();
-    let block = panel(format!("Session · {when}"), false);
+    let block = panel(t, format!("Session · {when}"), false);
     let inner = block.inner(area).inner(ratatui::layout::Margin::new(1, 0));
     frame.render_widget(block, area);
     let status = if session.completed {
@@ -538,6 +564,7 @@ fn session_details(
         dash.scroll,
         false,
         report,
+        t,
         frame,
         table_area,
     );
@@ -548,19 +575,20 @@ fn item_details(
     dash: &Dashboard,
     history: &History,
     item: Problem,
-    score: f64,
-    count: u32,
+    skill: Skill,
+    t: &Theme,
     frame: &mut Frame,
     area: Rect,
 ) {
-    let block = panel(item.to_string(), false);
+    let block = panel(t, item.to_string(), false);
     let inner = block.inner(area).inner(ratatui::layout::Margin::new(1, 0));
     frame.render_widget(block, area);
     let header = format!(
-        "{} = {} · seen {count} · {:.1}× the usual effort",
+        "{} = {} · seen {} · {:.1}× the usual effort",
         item,
         item.answer(),
-        score.exp()
+        skill.count,
+        skill.score.exp()
     );
     let [header_area, _, table_area] = Layout::vertical([
         Constraint::Length(1),
@@ -574,7 +602,15 @@ fn item_details(
         .iter()
         .rev()
         .filter(|a| canonical(&a.problem) == item);
-    attempt_table(attempts, dash.scroll, true, &dash.report, frame, table_area);
+    attempt_table(
+        attempts,
+        dash.scroll,
+        true,
+        &dash.report,
+        t,
+        frame,
+        table_area,
+    );
 }
 
 /// Attempts as a table, scrolled down by `scroll` rows. `dated` shows the
@@ -584,6 +620,7 @@ fn attempt_table<'a>(
     scroll: u16,
     dated: bool,
     report: &Report,
+    t: &Theme,
     frame: &mut Frame,
     area: Rect,
 ) {
@@ -599,13 +636,13 @@ fn attempt_table<'a>(
                 a.question.clone()
             };
             let mark = match (a.correct, a.skipped) {
-                (true, _) => Cell::from("✓"),
-                (false, true) => Cell::from("skip").dim(),
-                (false, false) => Cell::from("✗").bold(),
+                (true, _) => Cell::from("✓").style(t.good()),
+                (false, true) => Cell::from("skip").style(t.warn()),
+                (false, false) => Cell::from("✗").style(t.bad()),
             };
             Row::new([
                 Cell::from(first),
-                Cell::from(a.answer.clone()).dim(),
+                Cell::from(a.answer.clone()).style(t.muted()),
                 Cell::from(a.given.clone()),
                 mark,
                 Cell::from(secs(a.ms as f64)),
@@ -636,8 +673,7 @@ mod tests {
 
     #[test]
     fn shades_rise_with_struggle() {
-        let shades: String = [-1.0, -0.1, 0.1, 0.3, 2.0].map(shade).iter().collect();
-        assert_eq!(shades, "·░▒▓█");
+        assert_eq!([-1.0, -0.1, 0.1, 0.3, 2.0].map(level), [0, 1, 2, 3, 4]);
     }
 
     #[test]

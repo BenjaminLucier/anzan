@@ -8,6 +8,7 @@ use anzan::{
     export,
     history::History,
     store::{self, Store},
+    theme::{self, AUTO, Theme},
     ui,
 };
 use clap::Parser;
@@ -23,21 +24,25 @@ fn main() -> Result<()> {
     match cli.command {
         Some(Command::Config(command)) => run_config(command, &config_path),
         Some(Command::Export { table, output }) => run_export(table, output.as_deref()),
+        Some(Command::Themes) => run_themes(&config_path),
         None => {
             let mut config = Config::load(&config_path)?;
             cli.session.apply(&mut config);
             config.validate().context("in command-line flags")?;
-            practice(config, cli.session.is_set())
+            practice(config, &config_path, cli.session.is_set())
         }
     }
 }
 
 /// Opens the menu, or goes straight into a session if `start` is set.
-fn practice(config: Config, start: bool) -> Result<()> {
+fn practice(config: Config, config_path: &Path, start: bool) -> Result<()> {
     let store = Store::new(store::data_dir()?);
     let now = Instant::now();
     let history = History::load(&store)?;
-    let mut app = App::new(config, rand::make_rng(), now, Timestamp::now()).with_history(history);
+    let (themes, current) = themes(&config, config_path)?;
+    let mut app = App::new(config, rand::make_rng(), now, Timestamp::now())
+        .with_history(history)
+        .with_themes(themes, current);
     if start {
         app = app.start_now(now);
     }
@@ -69,6 +74,44 @@ fn save(app: &mut App, store: &Store) -> Result<()> {
             Record::Session(session) => store.append_session(&session)?,
         }
     }
+    Ok(())
+}
+
+/// Every theme, and which one the config chooses. Asks the terminal for
+/// its background only when the choice depends on it.
+fn themes(config: &Config, config_path: &Path) -> Result<(Vec<Theme>, usize)> {
+    let truecolor =
+        std::env::var("COLORTERM").is_ok_and(|v| v.contains("truecolor") || v.contains("24bit"));
+    let themes: Vec<Theme> = theme::catalog(Some(&config::themes_dir(config_path)))
+        .into_iter()
+        .map(|t| t.with_truecolor(truecolor))
+        .collect();
+    let is_light = if config.theme.name == AUTO {
+        use terminal_colorsaurus::{QueryOptions, ThemeMode, theme_mode};
+        theme_mode(QueryOptions::default())
+            .ok()
+            .map(|mode| mode == ThemeMode::Light)
+    } else {
+        None
+    };
+    let current = theme::choose(&themes, &config.theme, is_light)
+        .map_err(anyhow::Error::msg)
+        .with_context(|| format!("in the [theme] section of {}", config_path.display()))?;
+    Ok((themes, current))
+}
+
+fn run_themes(config_path: &Path) -> Result<()> {
+    let dir = config::themes_dir(config_path);
+    for theme in theme::catalog(Some(&dir)) {
+        let kind = match theme.is_light() {
+            None => "the terminal's own colours",
+            Some(true) => "light",
+            Some(false) => "dark",
+        };
+        println!("{:<20} {kind}", theme.name);
+    }
+    println!();
+    println!("Add base16 or base24 .yaml schemes to {}", dir.display());
     Ok(())
 }
 
