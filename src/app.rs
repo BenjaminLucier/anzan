@@ -25,16 +25,9 @@ use crate::{
     config::Config,
     history::History,
     stats::report::{self, Fingerprint},
-    store::{Attempt, SessionRecord},
+    store::Record,
     theme::Theme,
 };
-
-/// Something that happened and should be saved.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Record {
-    Attempt(Attempt),
-    Session(SessionRecord),
-}
 
 /// Records waiting to be saved, and the history they are already part of.
 #[derive(Debug, Default)]
@@ -298,7 +291,7 @@ mod tests {
     use ratatui::crossterm::event::KeyEventKind;
 
     use super::*;
-    use crate::config::Submit;
+    use crate::{config::Submit, store::Attempt};
 
     const DURATION: Duration = Duration::from_secs(120);
 

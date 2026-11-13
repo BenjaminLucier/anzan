@@ -5,10 +5,7 @@
 
 use anyhow::Result;
 
-use crate::{
-    app::Record,
-    store::{Attempt, SessionRecord, Store},
-};
+use crate::store::{Attempt, Record, SessionRecord, Store};
 
 #[derive(Debug, Default, Clone)]
 pub struct History {

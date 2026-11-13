@@ -66,6 +66,13 @@ pub struct SessionRecord {
     pub problems: serde_json::Value,
 }
 
+/// Something that happened and should be saved.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Record {
+    Attempt(Attempt),
+    Session(SessionRecord),
+}
+
 /// Rows read back from a file, minus any that could not be parsed.
 #[derive(Debug)]
 pub struct Loaded<T> {
@@ -93,6 +100,13 @@ impl Store {
 
     pub fn sessions_path(&self) -> PathBuf {
         self.dir.join("sessions.jsonl")
+    }
+
+    pub fn save(&self, record: &Record) -> Result<()> {
+        match record {
+            Record::Attempt(attempt) => self.append_attempt(attempt),
+            Record::Session(session) => self.append_session(session),
+        }
     }
 
     pub fn append_attempt(&self, attempt: &Attempt) -> Result<()> {

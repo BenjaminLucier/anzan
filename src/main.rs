@@ -2,7 +2,7 @@ use std::{fs, io, path::Path, time::Instant};
 
 use anyhow::{Context, Result, bail};
 use anzan::{
-    app::{App, Record},
+    app::App,
     cli::{Cli, Command, ConfigCommand, Table},
     config::{self, Config},
     export,
@@ -80,13 +80,8 @@ fn run(terminal: &mut DefaultTerminal, mut app: App, store: &Store) -> Result<()
 }
 
 fn save(app: &mut App, store: &Store) -> Result<()> {
-    for record in app.drain_records() {
-        match record {
-            Record::Attempt(attempt) => store.append_attempt(&attempt)?,
-            Record::Session(session) => store.append_session(&session)?,
-        }
-    }
-    Ok(())
+    app.drain_records()
+        .try_for_each(|record| store.save(&record))
 }
 
 /// `path` with the home directory written as `~`, to keep it short.

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use jiff::{SignedDuration, Timestamp, Unit};
 use rand::{RngExt, rngs::StdRng};
 
-use super::{Journal, Record};
+use super::Journal;
 use crate::{
     answer::Answer,
     config::{Config, Submit},
@@ -13,7 +13,7 @@ use crate::{
     generate::Settings,
     history::History,
     problem::Problem,
-    store::{Attempt, SessionRecord},
+    store::{Attempt, Record, SessionRecord},
 };
 
 /// The longest answer the input accepts. Any answer we ask for fits easily,

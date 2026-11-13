@@ -22,23 +22,24 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
-    pub session: Session,
+    pub session: SessionConfig,
     pub problems: Settings,
     pub drill: DrillConfig,
     pub scoring: Scoring,
     pub theme: ThemeConfig,
 }
 
+/// The `[session]` section: how the next session runs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct Session {
+pub struct SessionConfig {
     /// Length of a session, in seconds.
     pub duration: u64,
     pub submit: Submit,
     pub mode: Mode,
 }
 
-impl Default for Session {
+impl Default for SessionConfig {
     fn default() -> Self {
         Self {
             duration: 120,
@@ -87,7 +88,7 @@ impl std::str::FromStr for Submit {
     }
 }
 
-impl Session {
+impl SessionConfig {
     pub fn duration(&self) -> Duration {
         Duration::from_secs(self.duration)
     }
