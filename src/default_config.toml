@@ -15,9 +15,9 @@ duration = 120
 submit = "auto"
 
 [problems]
-# Operations to ask, chosen at random with equal odds.
+# Kinds of problem to ask, chosen at random with equal odds.
 # Any of: "add", "sub", "mul", "div".
-ops = ["add", "sub", "mul", "div"]
+kinds = ["add", "sub", "mul", "div"]
 
 [problems.add_sub]
 # Addition asks lhs + rhs. Subtraction asks the same sum backwards,

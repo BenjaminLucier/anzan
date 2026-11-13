@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 pub use arithmetic::{AddSub, MulDiv};
 
-use crate::problem::{Op, Problem};
+use crate::problem::{Kind, Problem};
 
 /// An inclusive range of integers that is never empty.
 ///
@@ -85,8 +85,8 @@ impl fmt::Display for EmptyRange {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
-    /// The operations to ask, each with equal odds.
-    pub ops: Vec<Op>,
+    /// The kinds of problem to ask, each with equal odds.
+    pub kinds: Vec<Kind>,
     pub add_sub: AddSub,
     pub mul_div: MulDiv,
 }
@@ -94,7 +94,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            ops: Op::ALL.to_vec(),
+            kinds: Kind::ALL.to_vec(),
             add_sub: AddSub::default(),
             mul_div: MulDiv::default(),
         }
@@ -104,10 +104,10 @@ impl Default for Settings {
 impl Settings {
     /// Checks what types alone cannot express.
     pub fn validate(&self) -> Result<(), String> {
-        if self.ops.is_empty() {
-            return Err("`ops` must list at least one operation".into());
+        if self.kinds.is_empty() {
+            return Err("`kinds` must list at least one kind of problem".into());
         }
-        if self.mul_div.lhs.contains(0) && self.ops.contains(&Op::Div) {
+        if self.mul_div.lhs.contains(0) && self.kinds.contains(&Kind::Div) {
             return Err("`mul_div.lhs` must not contain 0, since it is the divisor".into());
         }
         Ok(())
@@ -117,12 +117,12 @@ impl Settings {
     ///
     /// Panics if the settings do not pass `validate`.
     pub fn generate(&self, rng: &mut impl Rng) -> Problem {
-        let op = *self.ops.choose(rng).expect("at least one operation");
-        match op {
-            Op::Add => self.add_sub.add(rng),
-            Op::Sub => self.add_sub.sub(rng),
-            Op::Mul => self.mul_div.mul(rng),
-            Op::Div => self.mul_div.div(rng),
+        let kind = *self.kinds.choose(rng).expect("at least one kind");
+        match kind {
+            Kind::Add => self.add_sub.add(rng),
+            Kind::Sub => self.add_sub.sub(rng),
+            Kind::Mul => self.mul_div.mul(rng),
+            Kind::Div => self.mul_div.div(rng),
         }
     }
 }
@@ -135,9 +135,11 @@ mod tests {
 
     use super::*;
 
-    fn ops_seen(settings: &Settings) -> HashSet<Op> {
+    fn kinds_seen(settings: &Settings) -> HashSet<Kind> {
         let mut rng = StdRng::seed_from_u64(0);
-        (0..200).map(|_| settings.generate(&mut rng).op).collect()
+        (0..1_000)
+            .map(|_| settings.generate(&mut rng).kind())
+            .collect()
     }
 
     #[test]
@@ -157,27 +159,28 @@ mod tests {
     #[test]
     fn validate_catches_impossible_settings() {
         assert!(Settings::default().validate().is_ok());
-        let no_ops = Settings {
-            ops: vec![],
+        let no_kinds = Settings {
+            kinds: vec![],
             ..Settings::default()
         };
-        assert!(no_ops.validate().is_err());
+        assert!(no_kinds.validate().is_err());
         let mut zero_divisor = Settings::default();
         zero_divisor.mul_div.lhs = Range::new(0, 12);
         assert!(zero_divisor.validate().is_err());
     }
 
     #[test]
-    fn mixes_every_operation() {
-        assert_eq!(ops_seen(&Settings::default()), HashSet::from(Op::ALL));
+    fn mixes_every_kind() {
+        let all: HashSet<_> = Kind::ALL.iter().copied().collect();
+        assert_eq!(kinds_seen(&Settings::default()), all);
     }
 
     #[test]
-    fn asks_only_chosen_operations() {
+    fn asks_only_chosen_kinds() {
         let settings = Settings {
-            ops: vec![Op::Add, Op::Sub],
+            kinds: vec![Kind::Add, Kind::Sub],
             ..Settings::default()
         };
-        assert_eq!(ops_seen(&settings), HashSet::from([Op::Add, Op::Sub]));
+        assert_eq!(kinds_seen(&settings), HashSet::from([Kind::Add, Kind::Sub]));
     }
 }

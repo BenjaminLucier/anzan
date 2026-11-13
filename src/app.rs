@@ -168,6 +168,10 @@ mod tests {
 
     const DURATION: Duration = Duration::from_secs(120);
 
+    /// Never right: no default problem has a negative answer, and no prefix of
+    /// it is a number.
+    const WRONG: &str = "-1";
+
     /// An app that started at the returned instant.
     fn new_app() -> (App, Instant) {
         let t0 = Instant::now();
@@ -229,7 +233,7 @@ mod tests {
     fn correct_answer_advances_without_enter() {
         let (mut app, t0) = new_app();
         let first = session(&app).problem;
-        type_str(&mut app, &first.result().to_string(), t0);
+        type_str(&mut app, &first.answer().to_string(), t0);
         assert_eq!(session(&app).score, 1);
         assert!(session(&app).input.is_empty());
         assert_ne!(
@@ -243,7 +247,7 @@ mod tests {
     fn wrong_answer_stays_put() {
         let (mut app, t0) = new_app();
         let first = session(&app).problem;
-        type_str(&mut app, &(first.result() + 1).to_string(), t0);
+        type_str(&mut app, WRONG, t0);
         assert_eq!(session(&app).score, 0);
         assert_eq!(session(&app).problem, first);
     }
@@ -251,7 +255,7 @@ mod tests {
     #[test]
     fn backspace_fixes_a_typo() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.result().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, "9999", t0);
         (0..4).for_each(|_| press(&mut app, KeyCode::Backspace, t0));
         type_str(&mut app, &answer, t0);
@@ -293,7 +297,7 @@ mod tests {
     fn enter_mode_waits_for_enter() {
         let (mut app, t0) = enter_mode_app();
         let first = session(&app).problem;
-        type_str(&mut app, &first.result().to_string(), t0);
+        type_str(&mut app, &first.answer().to_string(), t0);
         assert_eq!(session(&app).problem, first);
         press(&mut app, KeyCode::Enter, t0 + secs(2.0));
         assert_eq!(session(&app).score, 1);
@@ -308,20 +312,20 @@ mod tests {
     fn wrong_answer_counts_and_shows_the_correction() {
         let (mut app, t0) = enter_mode_app();
         let first = session(&app).problem;
-        type_str(&mut app, &(first.result() + 1).to_string(), t0);
+        type_str(&mut app, WRONG, t0);
         press(&mut app, KeyCode::Enter, t0);
         assert_eq!(session(&app).wrong, 1);
         assert_eq!(session(&app).score, 0);
         assert_ne!(session(&app).problem, first);
         let correction = session(&app).correction.clone().unwrap();
         assert_eq!(correction.question, first.to_string());
-        assert_eq!(correction.answer, first.result().to_string());
+        assert_eq!(correction.answer, first.answer().to_string());
         let [attempt] = attempts(&mut app).try_into().unwrap();
         assert!(!attempt.correct);
-        assert_eq!(attempt.given, (first.result() + 1).to_string());
+        assert_eq!(attempt.given, WRONG);
 
         // The next correct answer clears the correction.
-        let answer = session(&app).problem.result().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0);
         press(&mut app, KeyCode::Enter, t0);
         assert!(session(&app).correction.is_none());
@@ -340,8 +344,7 @@ mod tests {
     #[test]
     fn enter_submits_a_wrong_answer_in_auto_mode_too() {
         let (mut app, t0) = new_app();
-        let first = session(&app).problem;
-        type_str(&mut app, &(first.result() + 1).to_string(), t0);
+        type_str(&mut app, WRONG, t0);
         press(&mut app, KeyCode::Enter, t0);
         assert_eq!(session(&app).wrong, 1);
     }
@@ -439,7 +442,7 @@ mod tests {
     #[test]
     fn answer_after_time_up_does_not_count() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.result().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0 + DURATION);
         assert!(on_summary(&app));
         assert_eq!(summary(&app).score, 0);
@@ -455,7 +458,7 @@ mod tests {
     #[test]
     fn enter_on_summary_starts_a_fresh_session() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.result().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0);
         let t1 = t0 + DURATION;
         app.tick(t1);
@@ -471,7 +474,7 @@ mod tests {
         let (mut app, t0) = new_app();
         assert_eq!(session(&app).summary().time_per_answer, None);
         for _ in 0..3 {
-            let answer = session(&app).problem.result().to_string();
+            let answer = session(&app).problem.answer().to_string();
             type_str(&mut app, &answer, t0);
         }
         app.tick(t0 + DURATION);
@@ -503,7 +506,7 @@ mod tests {
     fn correct_answer_is_recorded() {
         let (mut app, t0) = new_app();
         let problem = session(&app).problem;
-        let answer = problem.result().to_string();
+        let answer = problem.answer().to_string();
         type_str(&mut app, "9", t0);
         press(&mut app, KeyCode::Backspace, t0);
         type_str(&mut app, &answer, t0 + secs(2.5));
@@ -525,9 +528,9 @@ mod tests {
     #[test]
     fn timing_restarts_with_each_problem() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.result().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0 + secs(3.0));
-        let answer = session(&app).problem.result().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0 + secs(4.0));
         let ms: Vec<_> = records(&mut app)
             .into_iter()
@@ -542,7 +545,7 @@ mod tests {
     #[test]
     fn finished_session_is_recorded() {
         let (mut app, t0) = new_app();
-        let answer = session(&app).problem.result().to_string();
+        let answer = session(&app).problem.answer().to_string();
         type_str(&mut app, &answer, t0);
         records(&mut app);
         app.tick(t0 + DURATION + secs(5.0));

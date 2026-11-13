@@ -124,7 +124,7 @@ pub fn config_path() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{generate::Range, problem::Op};
+    use crate::{generate::Range, problem::Kind};
 
     #[test]
     fn empty_file_gives_defaults() {
@@ -139,7 +139,7 @@ mod tests {
             duration = 60
 
             [problems]
-            ops = ['add', 'sub']
+            kinds = ['add', 'sub']
 
             [problems.add_sub]
             lhs = [10, 99]
@@ -148,7 +148,7 @@ mod tests {
         .unwrap();
         let defaults = Config::default();
         assert_eq!(config.session.duration, 60);
-        assert_eq!(config.problems.ops, [Op::Add, Op::Sub]);
+        assert_eq!(config.problems.kinds, [Kind::Add, Kind::Sub]);
         assert_eq!(config.problems.add_sub.lhs, Range::new(10, 99));
         assert_eq!(config.problems.add_sub.rhs, defaults.problems.add_sub.rhs);
         assert_eq!(config.problems.mul_div, defaults.problems.mul_div);
@@ -168,7 +168,7 @@ mod tests {
 
     #[test]
     fn rejects_impossible_settings() {
-        assert!(Config::parse("[problems]\nops = []").is_err());
+        assert!(Config::parse("[problems]\nkinds = []").is_err());
         assert!(Config::parse("[session]\nduration = 0").is_err());
     }
 

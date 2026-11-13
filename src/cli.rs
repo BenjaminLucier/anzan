@@ -6,7 +6,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::{
     config::{Config, Submit},
-    problem::Op,
+    problem::Kind,
 };
 
 #[derive(Debug, Parser)]
@@ -66,9 +66,9 @@ pub struct SessionArgs {
     #[arg(short, long, value_name = "SECONDS")]
     pub duration: Option<u64>,
 
-    /// Operations to ask, comma separated: add, sub, mul, div.
-    #[arg(long, value_delimiter = ',', value_name = "OPS")]
-    pub ops: Option<Vec<Op>>,
+    /// Kinds of problem to ask, comma separated, such as add,sub.
+    #[arg(short, long, value_delimiter = ',', value_name = "KINDS")]
+    pub kinds: Option<Vec<Kind>>,
 
     /// How answers are handed in: auto (as soon as correct) or enter.
     #[arg(long, value_name = "MODE")]
@@ -79,7 +79,7 @@ impl SessionArgs {
     /// Whether any flag was given, in which case a session starts straight
     /// away instead of opening the menu.
     pub fn is_set(&self) -> bool {
-        self.duration.is_some() || self.ops.is_some() || self.submit.is_some()
+        self.duration.is_some() || self.kinds.is_some() || self.submit.is_some()
     }
 
     /// Applies these overrides on top of `config`.
@@ -87,8 +87,8 @@ impl SessionArgs {
         if let Some(duration) = self.duration {
             config.session.duration = duration;
         }
-        if let Some(ops) = &self.ops {
-            config.problems.ops.clone_from(ops);
+        if let Some(kinds) = &self.kinds {
+            config.problems.kinds.clone_from(kinds);
         }
         if let Some(submit) = self.submit {
             config.session.submit = submit;
@@ -113,11 +113,19 @@ mod tests {
 
     #[test]
     fn flags_override_config() {
-        let cli = parse(&["--duration", "60", "--ops", "add,sub", "--submit", "enter"]).unwrap();
+        let cli = parse(&[
+            "--duration",
+            "60",
+            "--kinds",
+            "add,sub",
+            "--submit",
+            "enter",
+        ])
+        .unwrap();
         let mut config = Config::default();
         cli.session.apply(&mut config);
         assert_eq!(config.session.duration, 60);
-        assert_eq!(config.problems.ops, [Op::Add, Op::Sub]);
+        assert_eq!(config.problems.kinds, [Kind::Add, Kind::Sub]);
         assert_eq!(config.session.submit, Submit::Enter);
         assert_eq!(config.problems.add_sub, Config::default().problems.add_sub);
         assert!(cli.session.is_set());
@@ -125,8 +133,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_ops() {
-        let err = parse(&["--ops", "add,pow"]).unwrap_err();
+    fn rejects_unknown_kinds() {
+        let err = parse(&["--kinds", "add,pow"]).unwrap_err();
         assert!(err.to_string().contains("pow"), "{err}");
     }
 

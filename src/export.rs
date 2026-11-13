@@ -40,7 +40,7 @@ pub fn attempts(rows: &[Attempt], out: impl Write) -> Result<()> {
         csv.serialize(AttemptRow {
             ts: a.ts.to_string(),
             session: &a.session,
-            kind: a.problem.op.name(),
+            kind: a.problem.kind().name(),
             question: &a.question,
             answer: &a.answer,
             given: &a.given,
@@ -74,18 +74,11 @@ pub fn sessions(rows: &[SessionRecord], out: impl Write) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::Submit,
-        problem::{Op, Problem},
-    };
+    use crate::{config::Submit, problem::Problem};
 
     #[test]
     fn attempts_as_csv() {
-        let problem = Problem {
-            op: Op::Mul,
-            lhs: 7,
-            rhs: 38,
-        };
+        let problem = Problem::Mul { lhs: 7, rhs: 38 };
         let attempt = Attempt {
             ts: "2026-11-13T10:00:00.25Z".parse().unwrap(),
             session: "abc".into(),

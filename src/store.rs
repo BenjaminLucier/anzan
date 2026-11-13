@@ -16,7 +16,7 @@ use etcetera::BaseStrategy;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{config::Submit, generate::Settings, problem::Problem};
+use crate::{config::Submit, problem::Problem};
 
 /// One question, as it was answered.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,7 +58,9 @@ pub struct SessionRecord {
     pub completed: bool,
     #[serde(default)]
     pub submit: Submit,
-    pub problems: Settings,
+    /// The problem settings the session used, kept as plain JSON so that
+    /// old rows still load after the settings change shape.
+    pub problems: serde_json::Value,
 }
 
 /// Rows read back from a file, minus any that could not be parsed.
@@ -156,20 +158,15 @@ pub fn data_dir() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::problem::Op;
 
     fn attempt() -> Attempt {
-        let problem = Problem {
-            op: Op::Add,
-            lhs: 47,
-            rhs: 38,
-        };
+        let problem = Problem::Add { lhs: 47, rhs: 38 };
         Attempt {
             ts: "2026-11-13T10:00:00Z".parse().unwrap(),
             session: "00c0ffee00c0ffee".into(),
             problem,
             question: problem.to_string(),
-            answer: problem.result().to_string(),
+            answer: problem.answer().to_string(),
             given: "85".into(),
             correct: true,
             skipped: false,

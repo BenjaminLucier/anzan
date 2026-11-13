@@ -21,7 +21,6 @@ use self::bitmap::{BigText, Scale};
 use crate::{
     app::{App, MAX_INPUT, Menu, Row, Screen, Session, Summary},
     config::{Config, Submit},
-    problem::Op,
 };
 
 /// Width of the answer box: the longest input, the cursor after it, one
@@ -49,10 +48,9 @@ pub fn render(app: &App, frame: &mut Frame) {
 
 /// The name in large kanji, then the settings for the next session.
 fn render_menu(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
-    let rows: Vec<Line> = Row::ALL
-        .iter()
+    let rows: Vec<Line> = Row::all()
         .enumerate()
-        .map(|(i, &row)| menu_line(row, config, i == menu.selected))
+        .map(|(i, row)| menu_line(row, config, i == menu.selected))
         .collect();
     let rows = Text::from(rows);
     let hints = Line::from("↑↓ choose · ←→ change · Enter start")
@@ -90,9 +88,9 @@ fn menu_line(row: Row, config: &Config, selected: bool) -> Line<'static> {
             format!("◂ {} ▸", clock(config.session.duration())),
         ),
         Row::Submit => ("Submit", format!("◂ {} ▸", config.session.submit.name())),
-        Row::Op(op) => {
-            let on = config.problems.ops.contains(&op);
-            (op_label(op), if on { "[x]" } else { "[ ]" }.to_owned())
+        Row::Kind(kind) => {
+            let on = config.problems.kinds.contains(&kind);
+            (kind.label(), if on { "[x]" } else { "[ ]" }.to_owned())
         }
     };
     let marker = if selected { "› " } else { "  " };
@@ -101,15 +99,6 @@ fn menu_line(row: Row, config: &Config, selected: bool) -> Line<'static> {
     let width = usize::from(MENU_WIDTH) - marker.chars().count() - label.len();
     let line = Line::from(format!("{marker}{label}{value:>width$}"));
     if selected { line.bold() } else { line }
-}
-
-fn op_label(op: Op) -> &'static str {
-    match op {
-        Op::Add => "Addition",
-        Op::Sub => "Subtraction",
-        Op::Mul => "Multiplication",
-        Op::Div => "Division",
-    }
 }
 
 /// The clock in the top left, and the score in the middle.

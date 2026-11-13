@@ -189,7 +189,7 @@ impl Session {
             score: self.score,
             completed,
             submit: self.submit,
-            problems: self.settings.clone(),
+            problems: serde_json::to_value(&self.settings).unwrap_or_default(),
         }
     }
 

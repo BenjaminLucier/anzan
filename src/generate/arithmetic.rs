@@ -7,7 +7,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use super::Range;
-use crate::problem::{Op, Problem};
+use crate::problem::Problem;
 
 /// Settings for addition and subtraction.
 ///
@@ -32,20 +32,15 @@ impl Default for AddSub {
 
 impl AddSub {
     pub fn add(&self, rng: &mut impl Rng) -> Problem {
-        Problem {
-            op: Op::Add,
+        Problem::Add {
             lhs: self.lhs.sample(rng),
             rhs: self.rhs.sample(rng),
         }
     }
 
     pub fn sub(&self, rng: &mut impl Rng) -> Problem {
-        let sum = self.add(rng);
-        Problem {
-            op: Op::Sub,
-            lhs: sum.result(),
-            rhs: sum.rhs,
-        }
+        let (a, b) = (self.lhs.sample(rng), self.rhs.sample(rng));
+        Problem::Sub { lhs: a + b, rhs: b }
     }
 }
 
@@ -73,8 +68,7 @@ impl Default for MulDiv {
 
 impl MulDiv {
     pub fn mul(&self, rng: &mut impl Rng) -> Problem {
-        Problem {
-            op: Op::Mul,
+        Problem::Mul {
             lhs: self.lhs.sample(rng),
             rhs: self.rhs.sample(rng),
         }
@@ -84,12 +78,8 @@ impl MulDiv {
     ///
     /// Panics if `lhs` contains zero.
     pub fn div(&self, rng: &mut impl Rng) -> Problem {
-        let product = self.mul(rng);
-        Problem {
-            op: Op::Div,
-            lhs: product.result(),
-            rhs: product.lhs,
-        }
+        let (a, b) = (self.lhs.sample(rng), self.rhs.sample(rng));
+        Problem::Div { lhs: a * b, rhs: a }
     }
 }
 
@@ -121,35 +111,39 @@ mod tests {
     proptest! {
         #[test]
         fn add_operands_stay_in_range(s in add_sub(), seed: u64) {
-            let p = s.add(&mut StdRng::seed_from_u64(seed));
-            prop_assert_eq!(p.op, Op::Add);
-            prop_assert!(s.lhs.contains(p.lhs));
-            prop_assert!(s.rhs.contains(p.rhs));
+            let Problem::Add { lhs, rhs } = s.add(&mut StdRng::seed_from_u64(seed)) else {
+                panic!("not an addition");
+            };
+            prop_assert!(s.lhs.contains(lhs));
+            prop_assert!(s.rhs.contains(rhs));
         }
 
         #[test]
         fn sub_reverses_an_add(s in add_sub(), seed: u64) {
-            let p = s.sub(&mut StdRng::seed_from_u64(seed));
-            prop_assert_eq!(p.op, Op::Sub);
-            prop_assert!(s.lhs.contains(p.result()));
-            prop_assert!(s.rhs.contains(p.rhs));
+            let Problem::Sub { lhs, rhs } = s.sub(&mut StdRng::seed_from_u64(seed)) else {
+                panic!("not a subtraction");
+            };
+            prop_assert!(s.lhs.contains(lhs - rhs));
+            prop_assert!(s.rhs.contains(rhs));
         }
 
         #[test]
         fn mul_operands_stay_in_range(s in mul_div(), seed: u64) {
-            let p = s.mul(&mut StdRng::seed_from_u64(seed));
-            prop_assert_eq!(p.op, Op::Mul);
-            prop_assert!(s.lhs.contains(p.lhs));
-            prop_assert!(s.rhs.contains(p.rhs));
+            let Problem::Mul { lhs, rhs } = s.mul(&mut StdRng::seed_from_u64(seed)) else {
+                panic!("not a multiplication");
+            };
+            prop_assert!(s.lhs.contains(lhs));
+            prop_assert!(s.rhs.contains(rhs));
         }
 
         #[test]
         fn div_is_exact_and_reverses_a_mul(s in mul_div(), seed: u64) {
-            let p = s.div(&mut StdRng::seed_from_u64(seed));
-            prop_assert_eq!(p.op, Op::Div);
-            prop_assert_eq!(p.lhs % p.rhs, 0);
-            prop_assert!(s.lhs.contains(p.rhs));
-            prop_assert!(s.rhs.contains(p.result()));
+            let Problem::Div { lhs, rhs } = s.div(&mut StdRng::seed_from_u64(seed)) else {
+                panic!("not a division");
+            };
+            prop_assert_eq!(lhs % rhs, 0);
+            prop_assert!(s.lhs.contains(rhs));
+            prop_assert!(s.rhs.contains(lhs / rhs));
         }
     }
 
@@ -158,8 +152,10 @@ mod tests {
         let (add_sub, mul_div) = (AddSub::default(), MulDiv::default());
         let mut rng = StdRng::seed_from_u64(0);
         for _ in 0..10_000 {
-            assert!(add_sub.sub(&mut rng).result() >= 2);
-            assert!(mul_div.div(&mut rng).result() >= 2);
+            for p in [add_sub.sub(&mut rng), mul_div.div(&mut rng)] {
+                let (op, lhs, rhs) = p.arithmetic().unwrap();
+                assert!(op.apply(lhs, rhs) >= 2, "{p}");
+            }
         }
     }
 }
