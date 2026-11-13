@@ -177,17 +177,19 @@ right shows the details of whatever is selected:
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/latte/dashboard.png">
-  <img alt="The dashboard's summary: score per session, practice per day and response times" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/dashboard.png">
+  <img alt="The dashboard's summary: score per session, practice per day, response times and effort per week" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/dashboard.png">
 </picture>
-
 
 - **Summary**: totals and your daily streak, with the score trend over
   sessions that asked the same questions the same way: the same length,
   mode, submit mode, kinds and ranges for those kinds (scores are only
-  comparable then), which the chart's title names, practice per day over the past year, and response time by
-  percentile, over all time and the last week.
+  comparable then), which the chart's title names; practice per day over
+  the past year; response time by percentile, over all time and the last
+  week; and your effort week by week (see below).
 - **Kinds**: accuracy and median time for each kind practised. Select one
-  for its speed curve, and beneath it what each of its skills costs you in
+  for its speed curve and its median seconds per week, titled with where
+  you started and where you are now, and beneath them what each of its
+  skills costs you in
   time (carrying twice, multiplying by 7, numbers ending in 8 or 9), its
   hardest questions, and a heatmap of the single-digit steps it is built
   on, running from easier than your average for that kind to harder:
@@ -199,17 +201,23 @@ right shows the details of whatever is selected:
 - **Weak spots**: the questions and the skills that take you more effort
   than your average, worst first. A question is listed once it has been
   asked twice, and a skill once it has come up five times. Select one to
-  see every attempt behind it and, for a question with a shortcut, what
-  the shortcut is.
+  see how its effort has gone week by week, every attempt behind it and,
+  for a question with a shortcut, what the shortcut is.
+
+Effort is how long answers took against your usual time for questions of
+their kind and size, with misses and corrections counting against them,
+as a multiple of your average: 2× is twice the usual effort, and a line
+falling towards 1× is a weakness going away. Weekly charts leave out weeks
+with only a few answers.
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/latte/dashboard-multiplication.png">
-  <img alt="Multiplication: its speed curve, what takes time, and a times-table heatmap" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/dashboard-multiplication.png">
+  <img alt="Multiplication: its speed curve, seconds per week, what takes time, and a times-table heatmap" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/dashboard-multiplication.png">
 </picture>
 
 <picture>
   <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/latte/dashboard-weak-spot.png">
-  <img alt="A weak spot: every attempt that used one slow times-table fact" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/dashboard-weak-spot.png">
+  <img alt="A weak spot: its effort week by week, and every attempt that used it" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/dashboard-weak-spot.png">
 </picture>
 
 Times are compared only between problems of the same kind and size, and
