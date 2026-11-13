@@ -6,6 +6,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::{
     config::{Config, Submit},
+    drill::Mode,
     problem::Kind,
 };
 
@@ -73,13 +74,21 @@ pub struct SessionArgs {
     /// How answers are handed in: auto (as soon as correct) or enter.
     #[arg(long, value_name = "MODE")]
     pub submit: Option<Submit>,
+
+    /// How problems are chosen: jiyu, kaizen, keiko, fukushu, oni, rakusho
+    /// or custom.
+    #[arg(short, long, value_name = "MODE")]
+    pub mode: Option<Mode>,
 }
 
 impl SessionArgs {
     /// Whether any flag was given, in which case a session starts straight
     /// away instead of opening the menu.
     pub fn is_set(&self) -> bool {
-        self.duration.is_some() || self.kinds.is_some() || self.submit.is_some()
+        self.duration.is_some()
+            || self.kinds.is_some()
+            || self.submit.is_some()
+            || self.mode.is_some()
     }
 
     /// Applies these overrides on top of `config`.
@@ -92,6 +101,9 @@ impl SessionArgs {
         }
         if let Some(submit) = self.submit {
             config.session.submit = submit;
+        }
+        if let Some(mode) = self.mode {
+            config.session.mode = mode;
         }
     }
 }
@@ -120,6 +132,8 @@ mod tests {
             "add,sub",
             "--submit",
             "enter",
+            "--mode",
+            "oni",
         ])
         .unwrap();
         let mut config = Config::default();
@@ -127,6 +141,7 @@ mod tests {
         assert_eq!(config.session.duration, 60);
         assert_eq!(config.problems.kinds, [Kind::Add, Kind::Sub]);
         assert_eq!(config.session.submit, Submit::Enter);
+        assert_eq!(config.session.mode, Mode::Oni);
         assert_eq!(config.problems.add_sub, Config::default().problems.add_sub);
         assert!(cli.session.is_set());
         assert!(!parse(&[]).unwrap().session.is_set());

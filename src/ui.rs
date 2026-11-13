@@ -23,6 +23,7 @@ use self::bitmap::{BigText, Scale};
 use crate::{
     app::{App, MAX_INPUT, Menu, Row, Screen, Session, Summary},
     config::{Config, Submit},
+    drill::Mode,
 };
 
 /// Width of the answer box: the longest input, the cursor after it, one
@@ -54,7 +55,7 @@ pub fn render(app: &App, frame: &mut Frame) {
 /// settings list scrolls when it has to so that the kanji keep their room,
 /// unless the terminal is too short for both.
 fn render_menu(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
-    const CHROME: u16 = 4; // name, a gap, a gap, hints
+    const CHROME: u16 = 5; // name, a gap, a gap, the mode, hints
     let lines: Vec<Line> = Row::all()
         .enumerate()
         .map(|(i, row)| menu_line(row, config, i == menu.selected))
@@ -70,7 +71,7 @@ fn render_menu(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
         .min(area.height.saturating_sub(CHROME + 1));
     let title = BigText::bitmap(Some(kanji::anzan()), "暗算").scales(Scale::SQUARE);
     let room = Size::new(area.width, area.height.saturating_sub(list_height + CHROME));
-    let [title_area, name, _, list_area, _, hints] = Layout::vertical([
+    let [title_area, name, _, list_area, mode, hints] = Layout::vertical([
         Constraint::Length(title.height(room)),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -91,6 +92,17 @@ fn render_menu(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
         .collect();
     let list_area = list_area.centered_horizontally(Constraint::Length(MENU_WIDTH));
     frame.render_widget(Text::from(visible), list_area);
+    let about = match config.session.mode {
+        Mode::Custom => Mode::Custom.description().to_owned(),
+        m => format!(
+            "{} {}, {}: {}",
+            m.kanji(),
+            m.label(),
+            m.meaning(),
+            m.description()
+        ),
+    };
+    frame.render_widget(Line::from(about).dim().centered(), mode);
     let hint = Line::from("↑↓ choose · ←→ change · Enter start · d stats")
         .dim()
         .centered();
@@ -110,6 +122,7 @@ const MENU_WIDTH: u16 = 36;
 
 fn menu_line(row: Row, config: &Config, selected: bool) -> Line<'static> {
     let (label, value) = match row {
+        Row::Mode => ("Mode", format!("◂ {} ▸", config.session.mode.label())),
         Row::Duration => (
             "Duration",
             format!("◂ {} ▸", clock(config.session.duration())),

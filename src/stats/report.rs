@@ -10,6 +10,7 @@ use super::{
 };
 use crate::{
     config::Submit,
+    drill::Mode,
     problem::{Kind, Op},
     store::{Attempt, SessionRecord},
 };
@@ -95,20 +96,27 @@ pub fn percentile_curve<'a>(attempts: impl IntoIterator<Item = &'a Attempt>) -> 
 pub struct Fingerprint {
     pub duration: u64,
     pub submit: Submit,
+    pub mode: Mode,
     problems: String,
 }
 
 impl Fingerprint {
-    pub fn new(duration: u64, submit: Submit, problems: &serde_json::Value) -> Self {
+    pub fn new(duration: u64, submit: Submit, mode: Mode, problems: &serde_json::Value) -> Self {
         Self {
             duration,
             submit,
+            mode,
             problems: problems.to_string(),
         }
     }
 
     pub fn of(session: &SessionRecord) -> Self {
-        Self::new(session.duration, session.submit, &session.problems)
+        Self::new(
+            session.duration,
+            session.submit,
+            session.mode,
+            &session.problems,
+        )
     }
 }
 
@@ -276,6 +284,7 @@ mod tests {
             score,
             completed,
             submit: Submit::Auto,
+            mode: Mode::Jiyu,
             problems: problems.clone(),
         };
         let sessions = [
@@ -284,7 +293,7 @@ mod tests {
             session(80, true, 300),
             session(34, true, 120),
         ];
-        let fp = Fingerprint::new(120, Submit::Auto, &problems);
+        let fp = Fingerprint::new(120, Submit::Auto, Mode::Jiyu, &problems);
         assert_eq!(trend(&sessions, &fp), [30, 34]);
     }
 

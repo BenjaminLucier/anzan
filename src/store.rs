@@ -16,7 +16,7 @@ use etcetera::BaseStrategy;
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use crate::{config::Submit, problem::Problem};
+use crate::{config::Submit, drill::Mode, problem::Problem};
 
 /// One question, as it was answered.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,6 +58,9 @@ pub struct SessionRecord {
     pub completed: bool,
     #[serde(default)]
     pub submit: Submit,
+    /// How problems were chosen.
+    #[serde(default)]
+    pub mode: Mode,
     /// The problem settings the session used, kept as plain JSON so that
     /// old rows still load after the settings change shape.
     pub problems: serde_json::Value,

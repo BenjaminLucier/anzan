@@ -13,6 +13,7 @@ const DURATIONS: [u64; 7] = [30, 60, 90, 120, 180, 300, 600];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row {
+    Mode,
     Duration,
     Submit,
     /// Turns every kind in a group on or off at once.
@@ -26,7 +27,9 @@ impl Row {
         let kinds = Group::ALL
             .into_iter()
             .flat_map(|g| std::iter::once(Row::Group(g)).chain(g.kinds().map(Row::Kind)));
-        [Row::Duration, Row::Submit].into_iter().chain(kinds)
+        [Row::Mode, Row::Duration, Row::Submit]
+            .into_iter()
+            .chain(kinds)
     }
 
     pub fn count() -> usize {
@@ -56,6 +59,7 @@ impl Menu {
     /// ignore the direction.
     pub fn change(&self, config: &mut Config, forwards: bool) {
         match self.row() {
+            Row::Mode => config.session.mode = config.session.mode.step(forwards),
             Row::Duration => {
                 let current = config.session.duration;
                 let next = if forwards {
@@ -101,7 +105,14 @@ fn toggle(kinds: &mut Vec<Kind>, kind: Kind) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Submit;
+    use crate::{config::Submit, drill::Mode};
+
+    /// A menu with `row` selected.
+    fn on(row: Row) -> Menu {
+        Menu {
+            selected: Row::all().position(|r| r == row).unwrap(),
+        }
+    }
 
     #[test]
     fn moves_wrap_around() {
@@ -109,12 +120,12 @@ mod tests {
         menu.up();
         assert_eq!(menu.row(), Row::Kind(*Kind::ALL.last().unwrap()));
         menu.down();
-        assert_eq!(menu.row(), Row::Duration);
+        assert_eq!(menu.row(), Row::Mode);
     }
 
     #[test]
     fn duration_steps_through_presets() {
-        let menu = Menu::default();
+        let menu = on(Row::Duration);
         let mut config = Config::default();
         menu.change(&mut config, true);
         assert_eq!(config.session.duration, 180);
@@ -125,7 +136,7 @@ mod tests {
 
     #[test]
     fn duration_stops_at_the_ends() {
-        let menu = Menu::default();
+        let menu = on(Row::Duration);
         let mut config = Config::default();
         config.session.duration = 600;
         menu.change(&mut config, true);
@@ -134,7 +145,7 @@ mod tests {
 
     #[test]
     fn custom_duration_steps_to_nearest_preset() {
-        let menu = Menu::default();
+        let menu = on(Row::Duration);
         let mut config = Config::default();
         config.session.duration = 75;
         menu.change(&mut config, true);
@@ -142,9 +153,19 @@ mod tests {
     }
 
     #[test]
+    fn mode_cycles() {
+        let menu = Menu::default();
+        let mut config = Config::default();
+        menu.change(&mut config, true);
+        assert_eq!(config.session.mode, Mode::Kaizen);
+        menu.change(&mut config, false);
+        menu.change(&mut config, false);
+        assert_eq!(config.session.mode, Mode::Custom);
+    }
+
+    #[test]
     fn submit_toggles() {
-        let mut menu = Menu::default();
-        menu.down();
+        let menu = on(Row::Submit);
         let mut config = Config::default();
         menu.change(&mut config, true);
         assert_eq!(config.session.submit, Submit::Enter);

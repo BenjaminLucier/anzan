@@ -186,6 +186,7 @@ impl App {
     fn start(&mut self, now: Instant) {
         let session = Session::new(
             &self.config,
+            &self.journal.history,
             StdRng::from_rng(&mut self.rng),
             self.epoch,
             now,
@@ -439,6 +440,7 @@ mod tests {
             t0,
             wall_epoch(),
         );
+        press(&mut app, KeyCode::Down, t0);
         press(&mut app, KeyCode::Right, t0);
         press(&mut app, KeyCode::Enter, t0);
         assert_eq!(session(&app).remaining, secs(180.0));

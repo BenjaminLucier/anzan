@@ -87,8 +87,9 @@ impl Report {
         let model = SkillModel::build(attempts, &config.scoring, now);
         let baselines = Baselines::build(attempts, config.scoring.by_submit);
         let problems = serde_json::to_value(&config.problems).unwrap_or_default();
+        let session = &config.session;
         let fingerprint =
-            Fingerprint::new(config.session.duration, config.session.submit, &problems);
+            Fingerprint::new(session.duration, session.submit, session.mode, &problems);
         let since = now - RECENT;
         Self {
             attempts: attempts.len(),

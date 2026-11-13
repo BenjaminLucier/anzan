@@ -135,14 +135,28 @@ impl Mode {
         }
     }
 
+    /// What the name means.
+    pub fn meaning(self) -> &'static str {
+        match self {
+            Mode::Jiyu => "freedom",
+            Mode::Kaizen => "improvement",
+            Mode::Keiko => "practice",
+            Mode::Fukushu => "review",
+            Mode::Oni => "demon",
+            Mode::Rakusho => "easy win",
+            Mode::Custom => "custom",
+        }
+    }
+
+    /// What the mode does.
     pub fn description(self) -> &'static str {
         match self {
-            Mode::Jiyu => "freedom: problems at random",
-            Mode::Kaizen => "improvement: leans gently toward weak spots",
-            Mode::Keiko => "practice: new problems built on weak skills",
-            Mode::Fukushu => "review: the questions that gave you trouble",
-            Mode::Oni => "demon: relentlessly on your weakest skills",
-            Mode::Rakusho => "easy win: questions you know, to warm up",
+            Mode::Jiyu => "problems at random",
+            Mode::Kaizen => "leans gently toward weak spots",
+            Mode::Keiko => "new problems built on weak skills",
+            Mode::Fukushu => "the questions that gave you trouble",
+            Mode::Oni => "relentlessly on your weakest skills",
+            Mode::Rakusho => "questions you know, to warm up",
             Mode::Custom => "as set in the [drill] section of the config",
         }
     }

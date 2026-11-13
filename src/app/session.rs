@@ -9,7 +9,9 @@ use super::{Journal, Record};
 use crate::{
     answer::Answer,
     config::{Config, Submit},
+    drill::{Drill, Mode},
     generate::Settings,
+    history::History,
     problem::Problem,
     store::{Attempt, SessionRecord},
 };
@@ -59,6 +61,8 @@ pub struct Session {
     settings: Settings,
     duration: Duration,
     pub submit: Submit,
+    pub mode: Mode,
+    drill: Drill,
     rng: StdRng,
     epoch: Epoch,
     started: Instant,
@@ -80,17 +84,35 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(config: &Config, mut rng: StdRng, epoch: Epoch, now: Instant) -> Self {
+    /// Starts a session, learning from `history` if the mode calls for it.
+    pub fn new(
+        config: &Config,
+        history: &History,
+        mut rng: StdRng,
+        epoch: Epoch,
+        now: Instant,
+    ) -> Self {
         let id = format!("{:016x}", rng.random::<u64>());
         let settings = config.problems.clone();
         let duration = config.session.duration();
-        let problem = settings.generate(&mut rng);
+        let mode = config.session.mode;
+        let drill = Drill::new(
+            mode.plan(&config.drill),
+            &settings,
+            history,
+            &config.scoring,
+            config.drill.window,
+            epoch.wall(now),
+        );
+        let problem = drill.next(&settings, &mut rng, None);
         let answer = problem.answer();
         Self {
             id,
             settings,
             duration,
             submit: config.session.submit,
+            mode,
+            drill,
             rng,
             epoch,
             started: now,
@@ -183,6 +205,7 @@ impl Session {
             score: self.score,
             completed,
             submit: self.submit,
+            mode: self.mode,
             problems: serde_json::to_value(&self.settings).unwrap_or_default(),
         }
     }
@@ -213,7 +236,9 @@ impl Session {
     }
 
     fn next_problem(&mut self, now: Instant) {
-        self.problem = self.settings.generate(&mut self.rng);
+        self.problem = self
+            .drill
+            .next(&self.settings, &mut self.rng, Some(&self.problem));
         self.answer = self.problem.answer();
         self.input.clear();
         self.edits = 0;
