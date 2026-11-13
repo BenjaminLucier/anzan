@@ -36,13 +36,25 @@ fn main() -> Result<()> {
 
 /// Opens the menu, or goes straight into a session if `start` is set.
 fn practice(config: Config, config_path: &Path, start: bool) -> Result<()> {
-    let store = Store::new(store::data_dir()?);
+    let data_dir = store::data_dir()?;
+    let store = Store::new(data_dir.clone());
     let now = Instant::now();
     let history = History::load(&store)?;
+    let config_note = if config_path.exists() {
+        String::new()
+    } else {
+        " (none yet: anzan config init)".to_owned()
+    };
+    let paths = vec![
+        ("config", format!("{}{config_note}", tilde(config_path))),
+        ("themes", tilde(&config::themes_dir(config_path))),
+        ("history", tilde(&data_dir)),
+    ];
     let (themes, current) = themes(&config, config_path)?;
     let mut app = App::new(config, rand::make_rng(), now, Timestamp::now())
         .with_history(history)
-        .with_themes(themes, current);
+        .with_themes(themes, current)
+        .with_paths(paths);
     if start {
         app = app.start_now(now);
     }
@@ -75,6 +87,17 @@ fn save(app: &mut App, store: &Store) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `path` with the home directory written as `~`, to keep it short.
+fn tilde(path: &Path) -> String {
+    match etcetera::home_dir()
+        .ok()
+        .and_then(|home| path.strip_prefix(home).ok().map(Path::to_owned))
+    {
+        Some(rest) => Path::new("~").join(rest).display().to_string(),
+        None => path.display().to_string(),
+    }
 }
 
 /// Every theme, and which one the config chooses. Asks the terminal for

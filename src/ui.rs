@@ -52,7 +52,7 @@ pub fn render(app: &App, frame: &mut Frame) {
         Screen::Dashboard(dash) => dashboard::render(dash, app.history(), t, frame, body),
     }
     if app.help {
-        render_help(&app.screen, t, frame);
+        render_help(&app.screen, &app.paths, t, frame);
     }
 }
 
@@ -106,7 +106,7 @@ fn help_section(
 }
 
 /// A box over the screen listing its keys.
-fn render_help(screen: &Screen, t: &Theme, frame: &mut Frame) {
+fn render_help(screen: &Screen, paths: &[(&str, String)], t: &Theme, frame: &mut Frame) {
     let (title, keys): (&str, &[(&str, &str)]) = match screen {
         Screen::Dashboard(_) => ("Statistics", DASHBOARD_KEYS),
         _ => ("Menu", MENU_KEYS),
@@ -115,6 +115,16 @@ fn render_help(screen: &Screen, t: &Theme, frame: &mut Frame) {
     lines.push(Line::default());
     lines.extend(help_section(t, "Practice", PRACTICE_KEYS));
     lines.push(Line::default());
+    if !paths.is_empty() {
+        lines.push(Line::from("Files").style(t.heading()));
+        lines.extend(paths.iter().map(|(what, path)| {
+            Line::from(vec![
+                Span::from(format!("  {what:<14}")).style(t.accent()),
+                Span::from(path.clone()).style(t.info()),
+            ])
+        }));
+        lines.push(Line::default());
+    }
     lines.push(Line::from("Esc or ? to close").style(t.muted()));
     let width = lines.iter().map(Line::width).max().unwrap_or(0) as u16 + 4;
     let height = lines.len() as u16 + 2;

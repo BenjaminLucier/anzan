@@ -78,6 +78,8 @@ pub struct App {
     themes: Vec<Theme>,
     theme: usize,
     initial_theme: usize,
+    /// Where things are kept, as (what, where), for the help to show.
+    pub paths: Vec<(&'static str, String)>,
 }
 
 impl App {
@@ -95,6 +97,7 @@ impl App {
             themes: vec![Theme::terminal()],
             theme: 0,
             initial_theme: 0,
+            paths: Vec::new(),
         }
     }
 
@@ -105,6 +108,12 @@ impl App {
             self.theme = current;
             self.initial_theme = current;
         }
+        self
+    }
+
+    /// Shows where things are kept in the help.
+    pub fn with_paths(mut self, paths: Vec<(&'static str, String)>) -> Self {
+        self.paths = paths;
         self
     }
 
