@@ -46,11 +46,14 @@ pub struct Plan {
 }
 
 /// Settings for the custom mode, and the history window every mode uses.
+/// The custom mode exists only once `source` or `focus` is set.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DrillConfig {
-    pub source: Source,
-    pub focus: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focus: Option<f64>,
     /// Days of history to draw questions and skills from. 0 for all.
     pub window: u32,
 }
@@ -58,16 +61,30 @@ pub struct DrillConfig {
 impl Default for DrillConfig {
     fn default() -> Self {
         Self {
-            source: Source::Similar,
-            focus: 1.5,
+            source: None,
+            focus: None,
             window: 60,
         }
     }
 }
 
 impl DrillConfig {
+    /// The custom mode's plan, if one is set. Whichever of `source` and
+    /// `focus` is missing takes a default.
+    pub fn custom(&self) -> Option<Plan> {
+        if self.source.is_none() && self.focus.is_none() {
+            return None;
+        }
+        Some(Plan {
+            source: self.source.unwrap_or(Source::Similar),
+            focus: self.focus.unwrap_or(1.5),
+        })
+    }
+
     pub fn validate(&self) -> Result<(), String> {
-        if !self.focus.is_finite() || self.focus.abs() > 10.0 {
+        if let Some(focus) = self.focus
+            && (!focus.is_finite() || focus.abs() > 10.0)
+        {
             return Err("`drill.focus` must be between -10 and 10".into());
         }
         Ok(())
@@ -158,11 +175,13 @@ impl Mode {
             Mode::Fukushu => "the questions that gave you trouble",
             Mode::Oni => "relentlessly on your weakest skills",
             Mode::Rakusho => "questions you know, to warm up",
-            Mode::Custom => "as set in the [drill] section of the config",
+            Mode::Custom => "as set by `source` and `focus` in the [drill] section of the config",
         }
     }
 
-    pub fn plan(self, custom: &DrillConfig) -> Plan {
+    /// What the mode does. The custom mode, when not set, falls back to
+    /// questions at random; configs that choose it must set it.
+    pub fn plan(self, drill: &DrillConfig) -> Plan {
         let plan = |source, focus| Plan { source, focus };
         match self {
             Mode::Jiyu => plan(Source::Fresh, 0.0),
@@ -171,7 +190,7 @@ impl Mode {
             Mode::Fukushu => plan(Source::Replay, 2.0),
             Mode::Oni => plan(Source::Similar, 4.0),
             Mode::Rakusho => plan(Source::Replay, -2.0),
-            Mode::Custom => plan(custom.source, custom.focus),
+            Mode::Custom => drill.custom().unwrap_or(plan(Source::Fresh, 0.0)),
         }
     }
 
@@ -443,6 +462,24 @@ mod tests {
                 uses_fact(&p, 7, 8)
             })
             .count()
+    }
+
+    #[test]
+    fn custom_exists_only_once_set() {
+        let unset = DrillConfig::default();
+        assert_eq!(unset.custom(), None);
+        assert_eq!(Mode::Custom.plan(&unset), Mode::Jiyu.plan(&unset));
+        let focus = DrillConfig {
+            focus: Some(-1.0),
+            ..unset.clone()
+        };
+        let plan = focus.custom().unwrap();
+        assert_eq!((plan.source, plan.focus), (Source::Similar, -1.0));
+        let source = DrillConfig {
+            source: Some(Source::Replay),
+            ..unset
+        };
+        assert_eq!(source.custom().unwrap().source, Source::Replay);
     }
 
     #[test]

@@ -109,14 +109,17 @@ odds = [2, 6]
 stakes = [2, 100]
 
 [drill]
+# The custom mode is off until `source` or `focus` is set; uncomment
+# either to turn it on. The other then takes the default shown.
+#
 # Where the custom mode gets problems:
 #   "fresh"    new problems, like jiyu
 #   "similar"  new problems that use a weak skill, such as 7 × 8 or carrying
 #   "replay"   questions you have been asked before
-source = "similar"
+# source = "similar"
 # How hard to lean toward weak spots: 0 ignores history, higher leans
 # harder, and negative leans toward strengths instead.
-focus = 1.5
+# focus = 1.5
 # Days of history every mode draws on; 0 for all of it.
 window = 60
 

@@ -119,7 +119,7 @@ as a times-table fact, a number of carries, or a single question.
 | **Fukushū** 復習   | review      | Questions that gave you trouble, asked again.            |
 | **Oni** 鬼         | demon       | Relentlessly on your weakest skills.                     |
 | **Rakushō** 楽勝   | easy win    | Questions you know well, to warm up.                     |
-| **Custom**         |             | As set in the `[drill]` section of the config.           |
+| **Custom**         |             | Off until `source` or `focus` is set under `[drill]`.    |
 
 With no history yet, every mode asks problems at random.
 

@@ -119,6 +119,9 @@ impl Config {
         }
         self.problems.validate().map_err(anyhow::Error::msg)?;
         self.drill.validate().map_err(anyhow::Error::msg)?;
+        if self.session.mode == Mode::Custom && self.drill.custom().is_none() {
+            bail!("the custom mode needs `source` or `focus` set in the [drill] section");
+        }
         self.scoring.validate().map_err(anyhow::Error::msg)
     }
 }

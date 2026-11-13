@@ -13,7 +13,7 @@ use super::{
     clock, kanji,
 };
 use crate::{
-    app::{Item, Menu, Panel},
+    app::{Item, Menu, Panel, available},
     config::Config,
     drill::Mode,
     theme::Theme,
@@ -158,6 +158,11 @@ fn item_line(item: Item, config: &Config, t: &Theme, selected: bool, width: u16)
             // Kanji are two cells wide; pad to the width of two of them.
             let kanji = format!("{:<w$}", mode.kanji(), w = 4 - mode.kanji().chars().count());
             let label = Span::from(mode.label().to_owned());
+            if !available(mode, config) {
+                // Listed, so that it can be found, but greyed out.
+                let text = format!(" ○ {kanji} {} · not set", mode.label());
+                return pad(vec![Span::from(text).style(t.muted())], width, selected, t);
+            }
             vec![
                 Span::from(format!(" {mark} ")).style(if current { t.accent() } else { t.muted() }),
                 Span::from(format!("{kanji} ")).style(t.accent()),
@@ -185,9 +190,12 @@ fn item_line(item: Item, config: &Config, t: &Theme, selected: bool, width: u16)
             ]
         }
     };
-    // The selection fills the whole row, as a bar.
+    pad(spans, width, selected, t)
+}
+
+/// `spans` filled out to `width`, so that a selection shows as a bar.
+fn pad(mut spans: Vec<Span<'static>>, width: u16, selected: bool, t: &Theme) -> Line<'static> {
     let used: usize = spans.iter().map(Span::width).sum();
-    let mut spans = spans;
     spans.push(Span::from(
         " ".repeat(usize::from(width).saturating_sub(used)),
     ));

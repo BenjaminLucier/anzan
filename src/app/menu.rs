@@ -60,6 +60,11 @@ pub enum Item {
     Kind(Kind),
 }
 
+/// Whether `mode` can be chosen: every mode but custom always can.
+pub fn available(mode: Mode, config: &Config) -> bool {
+    mode != Mode::Custom || config.drill.custom().is_some()
+}
+
 /// Which panel has focus, and the row selected in it.
 #[derive(Debug, Default)]
 pub struct Menu {
@@ -101,17 +106,22 @@ impl Menu {
     }
 
     /// Moves the selection up (`true`) or down within the panel. In the
-    /// mode panel, moving chooses the mode.
+    /// mode panel, moving chooses the mode, passing over the custom mode
+    /// unless the config sets it.
     pub fn step(&mut self, config: &mut Config, up: bool) {
         if self.panel() == Panel::Mode {
+            let modes: Vec<Mode> = Mode::ALL
+                .into_iter()
+                .filter(|&m| available(m, config))
+                .collect();
             let mode = config.session.mode;
-            let i = Mode::ALL.iter().position(|&m| m == mode).unwrap_or(0);
+            let i = modes.iter().position(|&m| m == mode).unwrap_or(0);
             let i = if up {
                 i.saturating_sub(1)
             } else {
-                (i + 1).min(Mode::ALL.len() - 1)
+                (i + 1).min(modes.len() - 1)
             };
-            config.session.mode = Mode::ALL[i];
+            config.session.mode = modes[i];
             return;
         }
         let last = self.panel().items().len() - 1;
@@ -209,6 +219,19 @@ mod tests {
         menu.step(&mut config, true);
         menu.step(&mut config, true);
         assert_eq!(config.session.mode, Mode::Jiyu);
+    }
+
+    #[test]
+    fn custom_is_skipped_until_set() {
+        let mut menu = Menu::default();
+        let mut config = Config::default();
+        for _ in 0..10 {
+            menu.step(&mut config, false);
+        }
+        assert_eq!(config.session.mode, Mode::Rakusho);
+        config.drill.focus = Some(2.0);
+        menu.step(&mut config, false);
+        assert_eq!(config.session.mode, Mode::Custom);
     }
 
     #[test]

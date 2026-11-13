@@ -18,7 +18,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub use self::{
     dashboard::{Dashboard, RECENT, Report, Side},
-    menu::{Item, Menu, Panel},
+    menu::{Item, Menu, Panel, available},
     session::{Correction, Epoch, MAX_INPUT, Session, Summary},
 };
 use crate::{
