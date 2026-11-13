@@ -31,9 +31,12 @@ pub fn render(menu: &Menu, config: &Config, t: &Theme, frame: &mut Frame, area: 
     const FOOTER: u16 = 3; // a gap, the mode, the hints
     let title = BigText::bitmap(Some(kanji::anzan()), "暗算").scales(&[Scale::Small]);
     let title_height = title.height(area.as_size());
-    let show_title = area.height >= grid_height + FOOTER + title_height;
-    let [title_area, grid, _, about, hints] = Layout::vertical([
+    // Rows between the kanji and the panels, when there is room for both.
+    const GAP: u16 = 2;
+    let show_title = area.height >= grid_height + FOOTER + title_height + GAP;
+    let [title_area, _, grid, _, about, hints] = Layout::vertical([
         Constraint::Length(if show_title { title_height } else { 0 }),
+        Constraint::Length(if show_title { GAP } else { 0 }),
         Constraint::Length(grid_height),
         Constraint::Length(1),
         Constraint::Length(1),
