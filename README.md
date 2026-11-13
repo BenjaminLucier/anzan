@@ -34,8 +34,10 @@ The practice modes take their names from Japanese too; see [Modes](#modes).
 With a Rust toolchain (1.88 or later):
 
 ```sh
-cargo install --path .
+cargo install anzan
 ```
+
+Or from a checkout of this repository, `cargo install --path .`.
 
 ## Use
 

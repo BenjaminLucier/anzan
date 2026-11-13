@@ -1,4 +1,8 @@
 //! Anzan (暗算): a terminal trainer for mental math.
+//!
+//! This library exists to serve the `anzan` binary and to keep its parts
+//! testable. It is not a stable API: anything may change between
+//! releases, whatever the version number says.
 
 pub mod answer;
 pub mod app;
