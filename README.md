@@ -106,9 +106,13 @@ The default is the four basic operations: addition and subtraction up to
 
 Questions are written in your terminal's own font, with exponents as
 superscripts, fractions stacked over a bar and roots under an overline.
-In a terminal that can scale text (Kitty and Ghostty, through the text
-sizing protocol), the question is drawn at twice the size; Anzan asks the
-terminal at startup, and elsewhere draws it at the usual size.
+The question is written at twice the size where the terminal is known to
+manage it. Kitty scales its own font, which Anzan checks for at startup.
+Ghostty cannot, so there the question is drawn in a small pixel font made
+of octant block characters, which Ghostty draws itself. Elsewhere the
+question is the size of everything else, since octants are new enough
+(Unicode 16) that most fonts lack them; `question = "large"` under
+`[theme]` asks for the drawn font anyway, and `"plain"` turns it off.
 
 ## Modes
 

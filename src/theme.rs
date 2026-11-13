@@ -304,6 +304,21 @@ pub struct ThemeConfig {
     /// The themes `auto` picks on light and dark backgrounds.
     pub light: String,
     pub dark: String,
+    pub question: Question,
+}
+
+/// How large to write the question on the practice screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Question {
+    /// Twice the size where the terminal is known to manage it.
+    #[default]
+    Auto,
+    /// The size of everything else.
+    Plain,
+    /// Twice the size, drawn in block characters if the terminal cannot
+    /// scale its font, whether or not it is known to have them.
+    Large,
 }
 
 impl Default for ThemeConfig {
@@ -312,6 +327,7 @@ impl Default for ThemeConfig {
             name: AUTO.to_owned(),
             light: "catppuccin-latte".to_owned(),
             dark: "catppuccin-mocha".to_owned(),
+            question: Question::Auto,
         }
     }
 }

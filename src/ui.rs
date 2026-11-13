@@ -5,6 +5,7 @@
 
 mod bitmap;
 mod dashboard;
+mod drawn;
 mod grid;
 mod kanji;
 mod math;
@@ -22,7 +23,7 @@ use ratatui::{
 };
 
 pub use self::scaled::{Painter, Scaled, probe};
-use self::{grid::Drawing, scaled::SCALE};
+use self::{drawn::Drawn, grid::Drawing, scaled::SCALE};
 use crate::{
     app::{App, MAX_INPUT, Overlay, Screen, Session, Summary},
     config::Submit,
@@ -33,18 +34,28 @@ use crate::{
 /// cell of padding, and the two borders.
 const INPUT_WIDTH: u16 = MAX_INPUT as u16 + 4;
 
+/// How the question on the practice screen is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum QuestionSize {
+    /// In the terminal's font, like everything else.
+    #[default]
+    Plain,
+    /// In the terminal's font at twice the size, for a terminal that
+    /// passed [`probe`]. The question is then left out of the frame and
+    /// returned, for a [`Painter`] to draw once the frame is on screen.
+    Scaled,
+    /// Drawn in a small pixel font, twice the height of the terminal's,
+    /// out of octant characters.
+    Drawn,
+}
+
 pub fn render(app: &App, frame: &mut Frame) {
-    render_screen(app, frame, false);
+    render_at(app, frame, QuestionSize::Plain);
 }
 
-/// As [`render`], for a terminal that passed [`probe`]. The question is
-/// then left out of the frame, with room for it at twice the size, and
-/// returned for a [`Painter`] to draw once the frame is on screen.
-pub fn render_scaled(app: &App, frame: &mut Frame) -> Option<Scaled> {
-    render_screen(app, frame, true)
-}
-
-fn render_screen(app: &App, frame: &mut Frame, scaled: bool) -> Option<Scaled> {
+/// As [`render`], with the question at `size` where there is room for
+/// it. Returns the question if it is for a [`Painter`] to draw.
+pub fn render_at(app: &App, frame: &mut Frame, size: QuestionSize) -> Option<Scaled> {
     let t = app.theme();
     let mut question = None;
     frame.render_widget(Block::new().style(t.base()), frame.area());
@@ -61,7 +72,7 @@ fn render_screen(app: &App, frame: &mut Frame, scaled: bool) -> Option<Scaled> {
         Screen::Menu(menu) => menu::render(menu, &app.config, t, frame, body),
         Screen::Practice(session) => {
             render_status(session, t, frame, top);
-            question = render_practice(session, scaled, t, frame, body);
+            question = render_practice(session, size, t, frame, body);
         }
         Screen::Summary(summary) => render_summary(summary, t, frame, body),
         Screen::Dashboard(dash) => dashboard::render(dash, app.history(), t, frame, body),
@@ -217,11 +228,12 @@ fn render_status(session: &Session, t: &Theme, frame: &mut Frame, area: Rect) {
 /// whether or not there is one, and the question has the rows of the
 /// tallest, with its math axis on the middle one.
 ///
-/// With `scaled`, and room for it, the question is twice the size: it is
-/// returned rather than drawn, and its rows are left blank.
+/// A question larger than `Plain` has twice the rows, where there are
+/// that many. A `Scaled` one is returned rather than drawn, and its rows
+/// are left blank.
 fn render_practice(
     session: &Session,
-    scaled: bool,
+    size: QuestionSize,
     t: &Theme,
     frame: &mut Frame,
     area: Rect,
@@ -245,7 +257,7 @@ fn render_practice(
     // On one too short for stacked notation, every question is one line
     // of plain text.
     let fixed = PROMPT_HEIGHT + INPUT_HEIGHT + BELOW + 3 * SPACING;
-    let big = scaled && area.height >= fixed + SCALE * math::MAX_HEIGHT;
+    let big = size != QuestionSize::Plain && area.height >= fixed + SCALE * math::MAX_HEIGHT;
     let question_height = if big {
         SCALE * math::MAX_HEIGHT
     } else if area.height >= fixed + math::MAX_HEIGHT {
@@ -268,9 +280,15 @@ fn render_practice(
     }
     let room = question_area.inner(Margin::new(2, 0));
     let (width, height) = (SCALE * grid.width() as u16, SCALE * grid.height() as u16);
-    // A question too wide to double is drawn at the usual size instead.
-    let question = if big && width <= room.width && height <= room.height {
-        Some(Scaled {
+    let fits = big && width <= room.width && height <= room.height;
+    let picture = (big && size == QuestionSize::Drawn)
+        .then(|| drawn::draw(&session.problem.expr()))
+        .flatten()
+        .filter(|picture| Drawn::new(picture, style).fits(room.as_size()));
+    // A question too wide to double, or with a character the drawn font
+    // lacks, is written at the usual size instead.
+    let question = match (size, picture) {
+        (QuestionSize::Scaled, _) if fits => Some(Scaled {
             area: Rect::new(
                 room.x + (room.width - width) / 2,
                 room.y + (room.height - height) / 2,
@@ -279,10 +297,15 @@ fn render_practice(
             ),
             rows: grid.rows().collect(),
             style,
-        })
-    } else {
-        frame.render_widget(&Drawing::new(Some(grid), &text).style(style), room);
-        None
+        }),
+        (_, Some(picture)) => {
+            frame.render_widget(&Drawn::new(&picture, style), room);
+            None
+        }
+        _ => {
+            frame.render_widget(&Drawing::new(Some(grid), &text).style(style), room);
+            None
+        }
     };
     let input = input.centered_horizontally(Constraint::Length(INPUT_WIDTH));
     render_input(&session.input, t, frame, input);
@@ -506,6 +529,7 @@ mod tests {
                 for height in [1, 2, 5, 9, 16, 24, 50, 90] {
                     draw(screen, width, height);
                     draw_scaled(screen, width, height);
+                    draw_drawn(screen, width, height);
                 }
             }
         }
@@ -598,13 +622,48 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         let mut question = None;
         terminal
-            .draw(|frame| question = render_scaled(app, frame))
+            .draw(|frame| question = render_at(app, frame, QuestionSize::Scaled))
             .unwrap();
         let buffer = terminal.backend().buffer();
         let screen = (0..height)
             .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
             .collect();
         (screen, question)
+    }
+
+    fn draw_drawn(app: &App, width: u16, height: u16) -> Vec<String> {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| {
+                render_at(app, frame, QuestionSize::Drawn);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        (0..height)
+            .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn drawn_question_is_two_rows_of_octants_in_place_of_the_text() {
+        let app = practising(Kind::Add);
+        let Screen::Practice(session) = &app.screen else {
+            panic!("not practising");
+        };
+        let text = session.problem.to_string();
+        let is_octant = |c: char| c != ' ' && ratatui::symbols::pixel::OCTANTS.contains(&c);
+        let screen = draw_drawn(&app, 80, 24);
+        assert!(!screen.iter().any(|row| row.contains(&text)), "{screen:#?}");
+        let rows: Vec<usize> = (0..screen.len())
+            .filter(|&y| screen[y].chars().any(is_octant))
+            .collect();
+        let box_top = row_of(&screen, "╭");
+        // Two rows, a row of the stack's spare room and a gap above the box.
+        assert_eq!(rows, [box_top - 5, box_top - 4], "{screen:#?}");
+        // The box is where it is for a question at twice the size any
+        // other way, and too short a terminal gets the text as before.
+        assert_eq!(box_top, row_of(&draw_scaled(&app, 80, 24).0, "╭"));
+        row_of(&draw_drawn(&app, 80, 14), &text);
     }
 
     #[test]
@@ -668,6 +727,11 @@ mod tests {
                 rows.iter().all(|&row| row == rows[0]),
                 "scaled {width}×{height}: {rows:?}"
             );
+            let drawn: Vec<usize> = kinds
+                .iter()
+                .map(|&kind| row_of(&draw_drawn(&practising(kind), width, height), "╭"))
+                .collect();
+            assert_eq!(drawn, rows, "drawn {width}×{height}");
             for question in scaled.iter().filter_map(|(_, q)| q.as_ref()) {
                 // The math axis is the same scaled row for all of them.
                 let axis = question.area.y + question.area.height / 2;

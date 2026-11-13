@@ -146,3 +146,11 @@ half_life = 30.0  # days for an attempt's weight to halve; 0 never fades
 name = "auto"
 light = "catppuccin-latte"
 dark = "catppuccin-mocha"
+# How large the question is written while practising:
+#   "auto"   twice the size where the terminal is known to manage it:
+#            scaled in its own font in Kitty, drawn out of block
+#            characters in Ghostty
+#   "plain"  the size of everything else
+#   "large"  twice the size in any terminal, drawn if it cannot scale;
+#            needs a terminal or font with Unicode 16 octant characters
+question = "auto"

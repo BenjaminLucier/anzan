@@ -8,8 +8,8 @@ use anzan::{
     export,
     history::History,
     store::{self, Store},
-    theme::{self, AUTO, Theme},
-    ui,
+    theme::{self, AUTO, Question, Theme},
+    ui::{self, QuestionSize},
 };
 use clap::Parser;
 use jiff::Timestamp;
@@ -51,6 +51,7 @@ fn practice(config: Config, config_path: &Path, start: bool) -> Result<()> {
         ("history", tilde(&data_dir)),
     ];
     let (themes, current) = themes(&config, config_path)?;
+    let question = config.theme.question;
     let mut app = App::new(config, rand::make_rng(), now, Timestamp::now())
         .with_history(history)
         .with_themes(themes, current)
@@ -59,37 +60,31 @@ fn practice(config: Config, config_path: &Path, start: bool) -> Result<()> {
         app = app.start_now(now);
     }
     ratatui::run(|terminal| {
-        // Asking leaves a mark on screen, so wipe it before drawing.
-        let painter = ui::probe().then(ui::Painter::default);
+        let size = question_size(question);
+        // Asking the terminal leaves a mark on screen: wipe it.
         terminal.clear()?;
-        run(terminal, app, &store, painter)
+        run(terminal, app, &store, size)
     })
 }
 
 /// Redraws after every key, and on each whole second while the clock runs.
 /// Saves whatever the app records as soon as it is recorded, and deletes
 /// the history when the app says to.
-///
-/// With a `painter`, the terminal can draw text at twice the size, and
-/// the question is painted over each frame instead of being part of it.
 fn run(
     terminal: &mut DefaultTerminal,
     mut app: App,
     store: &Store,
-    mut painter: Option<ui::Painter>,
+    size: QuestionSize,
 ) -> Result<()> {
+    // A scaled question is not part of the frame: it is painted over it.
+    let mut painter = ui::Painter::default();
     while !app.quit {
         app.tick(Instant::now());
         save(&mut app, store)?;
-        match &mut painter {
-            Some(painter) => {
-                let mut question = None;
-                terminal.draw(|frame| question = ui::render_scaled(&app, frame))?;
-                painter.paint(question, terminal.size()?, &mut io::stdout())?;
-            }
-            None => {
-                terminal.draw(|frame| ui::render(&app, frame))?;
-            }
+        let mut question = None;
+        terminal.draw(|frame| question = ui::render_at(&app, frame, size))?;
+        if size == QuestionSize::Scaled {
+            painter.paint(question, terminal.size()?, &mut io::stdout())?;
         }
         let ready = match app.until_next_tick() {
             Some(timeout) => event::poll(timeout)?,
@@ -100,6 +95,24 @@ fn run(
         }
     }
     save(&mut app, store)
+}
+
+/// How to write the question in this terminal. Call in raw mode, since
+/// it may ask the terminal what it can do.
+fn question_size(wanted: Question) -> QuestionSize {
+    // Ghostty draws block characters itself, octants among them,
+    // whatever the font. So does Kitty, but it can scale its font.
+    let draws_octants = || {
+        let is = |name: &str, value: &str| std::env::var(name).is_ok_and(|v| v.contains(value));
+        is("TERM_PROGRAM", "ghostty") || is("TERM", "ghostty")
+    };
+    match wanted {
+        Question::Plain => QuestionSize::Plain,
+        _ if ui::probe() => QuestionSize::Scaled,
+        Question::Large => QuestionSize::Drawn,
+        Question::Auto if draws_octants() => QuestionSize::Drawn,
+        Question::Auto => QuestionSize::Plain,
+    }
 }
 
 fn save(app: &mut App, store: &Store) -> Result<()> {
