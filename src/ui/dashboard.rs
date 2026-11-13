@@ -27,7 +27,7 @@ use crate::{
     stats::{
         features::Feature,
         report::{
-            Cost, DigitGrid, Fingerprint, KindReport, Report, SessionReport, Speed, WeakSpot,
+            Cost, DigitGrid, Fingerprint, KindReport, Report, SessionReport, Speed, WeakSpot, Week,
         },
     },
     store::Attempt,
@@ -267,7 +267,186 @@ fn overview(report: &Report, t: &Theme, frame: &mut Frame, area: Rect) {
     .areas(inner);
     render_trend(report, t, frame, trend);
     activity(report, t, frame, activity_area);
-    speed_chart(&report.speed, true, t, frame, speed_area);
+    let (speed_area, progress_area) = pair(speed_area);
+    if let Some(area) = speed_area {
+        speed_chart(&report.speed, true, t, frame, area);
+    }
+    progress_chart(&report.progress, Measure::Effort, t, frame, progress_area);
+}
+
+/// Where the speed and progress charts go: side by side, or one above the
+/// other in a pane too narrow for that, or, with room for only one, the
+/// progress chart alone, since it says more about how practice is going.
+fn pair(area: Rect) -> (Option<Rect>, Rect) {
+    const MIN_WIDTH: u16 = 36;
+    /// The fewest rows for each of two stacked charts.
+    const MIN_STACKED: u16 = 7;
+    if area.width >= 2 * MIN_WIDTH + 2 {
+        let [speed, progress] = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)])
+            .spacing(2)
+            .areas(area);
+        (Some(speed), progress)
+    } else if area.height > 2 * MIN_STACKED {
+        let [speed, _, progress] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .areas(area);
+        (Some(speed), progress)
+    } else {
+        (None, area)
+    }
+}
+
+/// What a progress chart plots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Measure {
+    /// Median seconds per correct answer.
+    Seconds,
+    /// Effort against the overall average, where 1× is average.
+    Effort,
+}
+
+/// The average of `values`, or of their first or last four.
+fn mean_of(values: impl Iterator<Item = f64>) -> f64 {
+    let (sum, n) = values.fold((0.0, 0), |(s, n), v| (s + v, n + 1));
+    sum / f64::from(n.max(1))
+}
+
+/// The title of a progress chart: what it plots, and where it started and
+/// has got to, each the average of four weeks so that one odd week does
+/// not decide it. Parts are dropped from the end if they do not fit in
+/// `width`.
+fn progress_title(weeks: &[Week], measure: Measure, width: usize) -> String {
+    let span = 4.min(weeks.len() / 2).max(1);
+    let then = |f: fn(&Week) -> f64| mean_of(weeks.iter().take(span).map(f));
+    let now = |f: fn(&Week) -> f64| mean_of(weeks.iter().rev().take(span).map(f));
+    let mut parts = match measure {
+        Measure::Seconds => vec![
+            "Seconds per week".to_owned(),
+            format!("{:.1}s to {:.1}s", then(|w| w.value), now(|w| w.value)),
+            format!(
+                "{:.0}% to {:.0}% right",
+                then(|w| w.accuracy) * 100.0,
+                now(|w| w.accuracy) * 100.0
+            ),
+        ],
+        Measure::Effort => vec![
+            "Effort per week".to_owned(),
+            format!(
+                "{} to {}",
+                times(then(|w| w.value)),
+                times(now(|w| w.value))
+            ),
+            "1× is your average".to_owned(),
+        ],
+    };
+    if weeks.len() < 2 {
+        parts.truncate(1);
+    }
+    while parts.len() > 1 && parts.join(" · ").chars().count() > width {
+        parts.pop();
+    }
+    parts.join(" · ")
+}
+
+/// Each value averaged with its neighbours either side, to steady a line
+/// drawn from only a few answers a week.
+fn smooth(values: &[f64]) -> Vec<f64> {
+    (0..values.len())
+        .map(|i| {
+            let window = &values[i.saturating_sub(1)..(i + 2).min(values.len())];
+            window.iter().sum::<f64>() / window.len() as f64
+        })
+        .collect()
+}
+
+/// A line through `weeks`, oldest on the left: median seconds as they
+/// are, or effort averaged over three weeks with a line at 1×, the
+/// average, to measure against. The y axis stops a little above most
+/// weeks, so that a rare bad week does not flatten the rest.
+fn progress_chart(weeks: &[Week], measure: Measure, t: &Theme, frame: &mut Frame, area: Rect) {
+    if area.height < 6 {
+        return;
+    }
+    let [title_area, chart_area] =
+        Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+    let title = progress_title(weeks, measure, usize::from(title_area.width));
+    frame.render_widget(Line::from(title).style(t.heading()), title_area);
+    let (Some(first), Some(last)) = (weeks.first(), weeks.last()) else {
+        return;
+    };
+    if weeks.len() < 2 {
+        let note = "Not enough weeks yet: a week counts once it has a few answers.";
+        frame.render_widget(
+            Paragraph::new(note)
+                .style(t.muted())
+                .wrap(Wrap { trim: true }),
+            chart_area,
+        );
+        return;
+    }
+
+    let week_of = |w: &Week| f64::from((w.monday - first.monday).get_days()) / 7.0;
+    let values: Vec<f64> = weeks.iter().map(|w| w.value).collect();
+    let values = match measure {
+        Measure::Seconds => values,
+        Measure::Effort => smooth(&values),
+    };
+    let mut sorted = values.clone();
+    sorted.sort_by(f64::total_cmp);
+    let usual_high = sorted[(sorted.len() * 9 / 10).min(sorted.len() - 1)] * 1.2;
+    let top = match measure {
+        Measure::Seconds => usual_high.ceil().max(1.0),
+        Measure::Effort => ((usual_high * 2.0).ceil() / 2.0).max(2.0),
+    };
+    let points: Vec<(f64, f64)> = weeks
+        .iter()
+        .zip(&values)
+        .map(|(w, &v)| (week_of(w), v.min(top)))
+        .collect();
+    let end = week_of(last).max(1.0);
+    let average = [(0.0, 1.0), (end, 1.0)];
+    let mut datasets = Vec::new();
+    if measure == Measure::Effort {
+        datasets.push(
+            Dataset::default()
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .style(t.muted())
+                .data(&average),
+        );
+    }
+    datasets.push(
+        Dataset::default()
+            .marker(Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(t.info())
+            .data(&points),
+    );
+
+    let date = |weeks: f64| {
+        let day = first.monday + ((weeks * 7.0).round() as i64).days();
+        day.strftime("%b %-d").to_string()
+    };
+    let y_label = |v: f64| match measure {
+        Measure::Seconds => axis_label(v),
+        Measure::Effort => format!("{v:>4.1}×"),
+    };
+    let chart = Chart::new(datasets)
+        .x_axis(Axis::default().style(t.muted()).bounds([0.0, end]).labels([
+            date(0.0),
+            date(end / 2.0),
+            date(end),
+        ]))
+        .y_axis(
+            Axis::default()
+                .style(t.muted())
+                .bounds([0.0, top])
+                .labels([0.0, top / 2.0, top].map(y_label)),
+        );
+    frame.render_widget(chart, chart_area);
 }
 
 /// What the score trend is of: sessions like the one the menu is set
@@ -378,14 +557,22 @@ fn speed_chart(speed: &Speed, numbers: bool, t: &Theme, frame: &mut Frame, area:
                 .data(&recent),
         );
     }
-    let mut title = "Seconds per correct answer, by percentile".to_owned();
+    // The longest title that fits.
+    let mut titles = vec![];
     if numbers {
         let numbers = format!("median {:.1}s · p90 {:.1}s", speed.at(50), speed.at(90));
-        title = format!("{title} · {numbers}");
-        if title.chars().count() > usize::from(area.width) {
-            title = format!("Seconds by percentile · {numbers}");
-        }
+        titles.push(format!(
+            "Seconds per correct answer, by percentile · {numbers}"
+        ));
+        titles.push(format!("Seconds by percentile · {numbers}"));
     }
+    titles.push("Seconds per correct answer, by percentile".to_owned());
+    titles.push("Seconds by percentile".to_owned());
+    let title = titles
+        .iter()
+        .find(|title| title.chars().count() <= usize::from(area.width))
+        .unwrap_or(&titles[titles.len() - 1])
+        .clone();
     let chart = Chart::new(datasets)
         .x_axis(
             Axis::default()
@@ -471,6 +658,9 @@ const BAND: u16 = 14;
 /// The fewest rows worth giving the speed chart.
 const MIN_CHART: u16 = 8;
 
+/// Rows of a weak spot's progress chart.
+const WEAK_CHART: u16 = 9;
+
 /// Width of a grid of `digits` digits: a label, then three cells each.
 fn grid_width(grid: &DigitGrid) -> u16 {
     4 + 3 * grid.digits.clone().count() as u16
@@ -507,7 +697,11 @@ fn kind_details(report: &Report, kind: &KindReport, t: &Theme, frame: &mut Frame
     ])
     .areas(inner);
     frame.render_widget(Line::from(summary), summary_area);
-    speed_chart(&kind.speed, false, t, frame, chart_area);
+    let (speed_area, progress_area) = pair(chart_area);
+    if let Some(area) = speed_area {
+        speed_chart(&kind.speed, false, t, frame, area);
+    }
+    progress_chart(&kind.progress, Measure::Seconds, t, frame, progress_area);
     if band_height == 0 {
         return;
     }
@@ -706,14 +900,25 @@ fn weak_details(
         feature => feature.about().unwrap_or_default().to_owned(),
     };
     // The note has its two rows whether or not it fills them, so the
-    // table starts on the same row for every weak spot.
-    let [header_area, about_area, _, table_area] = Layout::vertical([
+    // table starts on the same row for every weak spot. The chart of how
+    // it has gone comes between them when the table keeps enough rows.
+    let chart_height = if inner.height >= 4 + WEAK_CHART + 1 + MIN_CHART {
+        WEAK_CHART
+    } else {
+        0
+    };
+    let [header_area, about_area, _, chart_area, _, table_area] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(2),
         Constraint::Length(1),
+        Constraint::Length(chart_height),
+        Constraint::Length(u16::from(chart_height > 0)),
         Constraint::Fill(1),
     ])
     .areas(inner);
+    if chart_height > 0 {
+        progress_chart(&weak.progress, Measure::Effort, t, frame, chart_area);
+    }
     frame.render_widget(Line::from(header), header_area);
     let about = Paragraph::new(about)
         .style(t.muted())
@@ -814,6 +1019,53 @@ mod tests {
     fn medians_need_a_correct_answer() {
         assert_eq!(median_secs(2140.0, 3), "2.1s");
         assert_eq!(median_secs(0.0, 0), "–");
+    }
+
+    fn weeks(values: &[f64]) -> Vec<Week> {
+        let first: Date = "2026-03-02".parse().unwrap();
+        values
+            .iter()
+            .enumerate()
+            .map(|(i, &value)| Week {
+                monday: first + (i as i64).weeks(),
+                value,
+                count: 10,
+                accuracy: 0.9,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn progress_title_compares_the_first_and_last_four_weeks() {
+        let seconds = weeks(&[4.0, 4.0, 4.0, 4.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0]);
+        assert_eq!(
+            progress_title(&seconds, Measure::Seconds, 80),
+            "Seconds per week · 4.0s to 2.0s · 90% to 90% right"
+        );
+        assert_eq!(
+            progress_title(&seconds, Measure::Seconds, 40),
+            "Seconds per week · 4.0s to 2.0s"
+        );
+        assert_eq!(
+            progress_title(&seconds, Measure::Seconds, 10),
+            "Seconds per week"
+        );
+        let effort = weeks(&[1.5, 0.5]);
+        assert_eq!(
+            progress_title(&effort, Measure::Effort, 80),
+            "Effort per week · 1.5× to 0.5× · 1× is your average"
+        );
+        assert_eq!(
+            progress_title(&weeks(&[1.5]), Measure::Effort, 80),
+            "Effort per week"
+        );
+    }
+
+    #[test]
+    fn smoothing_averages_each_week_with_its_neighbours() {
+        assert_eq!(smooth(&[]), Vec::<f64>::new());
+        assert_eq!(smooth(&[3.0]), [3.0]);
+        assert_eq!(smooth(&[1.0, 3.0, 5.0, 1.0]), [2.0, 3.0, 3.0, 3.0]);
     }
 
     #[test]
