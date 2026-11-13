@@ -145,47 +145,49 @@ pub struct Skill {
 
 #[derive(Debug, Default)]
 pub struct SkillModel {
-    overall: f64,
-    prior: f64,
+    scoring: Scoring,
+    baselines: Baselines,
+    now: Timestamp,
+    all: Tally,
     features: HashMap<Feature, Tally>,
     kinds: HashMap<Kind, Tally>,
 }
 
 impl SkillModel {
+    /// Learns from `attempts`, weighting each by its age at `now`.
     pub fn build(attempts: &[Attempt], scoring: &Scoring, now: Timestamp) -> Self {
-        let baselines = Baselines::build(attempts, scoring.by_submit);
         let mut model = Self {
-            prior: scoring.prior,
+            scoring: scoring.clone(),
+            baselines: Baselines::build(attempts, scoring.by_submit),
+            now,
             ..Self::default()
         };
-        let mut all = Tally::default();
-        for a in attempts {
-            let kind = a.problem.kind();
-            // An attempt with nothing to compare against is typical.
-            let baseline = baselines.median(kind, a.submit).unwrap_or(a.ms as f64);
-            let score = struggle(a, baseline, scoring);
-            let weight = recency(a.ts, now, scoring.half_life);
-            all.add(score, weight);
-            model.kinds.entry(kind).or_default().add(score, weight);
-            for feature in features(&a.problem) {
-                model
-                    .features
-                    .entry(feature)
-                    .or_default()
-                    .add(score, weight);
-            }
-        }
-        model.overall = if all.weight > 0.0 {
-            all.sum / all.weight
-        } else {
-            0.0
-        };
+        attempts.iter().for_each(|a| model.observe(a));
         model
+    }
+
+    /// Learns from one more attempt, such as one just made. The usual
+    /// times stay as they were when the model was built.
+    pub fn observe(&mut self, a: &Attempt) {
+        let kind = a.problem.kind();
+        // An attempt with nothing to compare against is typical.
+        let baseline = self.baselines.median(kind, a.submit).unwrap_or(a.ms as f64);
+        let score = struggle(a, baseline, &self.scoring);
+        let weight = recency(a.ts, self.now, self.scoring.half_life);
+        self.all.add(score, weight);
+        self.kinds.entry(kind).or_default().add(score, weight);
+        for feature in features(&a.problem) {
+            self.features.entry(feature).or_default().add(score, weight);
+        }
     }
 
     /// The average struggle over everything.
     pub fn overall(&self) -> f64 {
-        self.overall
+        if self.all.weight > 0.0 {
+            self.all.sum / self.all.weight
+        } else {
+            0.0
+        }
     }
 
     pub fn feature(&self, feature: &Feature) -> Skill {
@@ -212,8 +214,9 @@ impl SkillModel {
 
     fn skill(&self, tally: Option<&Tally>) -> Skill {
         let Tally { weight, sum, count } = tally.copied().unwrap_or_default();
+        let prior = self.scoring.prior;
         Skill {
-            score: (sum + self.prior * self.overall) / (weight + self.prior).max(f64::EPSILON),
+            score: (sum + prior * self.overall()) / (weight + prior).max(f64::EPSILON),
             count,
         }
     }
@@ -346,5 +349,21 @@ mod tests {
         assert_eq!(median(&mut [3, 1, 2]), 2.0);
         assert_eq!(median(&mut [4, 1, 2, 3]), 2.5);
         assert_eq!(median(&mut []), 0.0);
+    }
+
+    #[test]
+    fn observing_matches_building() {
+        let attempts: Vec<_> = [(mul(7, 8), 4000), (mul(3, 4), 1000), (mul(7, 8), 3000)]
+            .into_iter()
+            .map(|(p, ms)| attempt(p, ms))
+            .collect();
+        let s = Scoring::default();
+        let built = SkillModel::build(&attempts, &s, now());
+        let mut grown = SkillModel::build(&attempts[..2], &s, now());
+        grown.observe(&attempts[2]);
+        // Usual times come from the first two only, so scores differ, but
+        // the new attempt is counted.
+        assert_eq!(grown.feature(&Feature::Fact(7, 8)).count, 2);
+        assert_eq!(built.feature(&Feature::Fact(7, 8)).count, 2);
     }
 }

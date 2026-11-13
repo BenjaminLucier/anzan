@@ -5,7 +5,7 @@
 //! [`SkillModel`], built from history when a session starts. With no
 //! history to go on, every mode asks fresh problems at random.
 
-use std::{collections::HashSet, fmt, str::FromStr};
+use std::{collections::BTreeSet, fmt, str::FromStr};
 
 use jiff::{SignedDuration, Timestamp};
 use rand::{Rng, seq::IndexedRandom};
@@ -19,6 +19,7 @@ use crate::{
         Scoring, SkillModel,
         features::{Feature, canonical, features},
     },
+    store::Attempt,
 };
 
 /// Where problems come from.
@@ -216,11 +217,13 @@ const TRIES: usize = 300;
 /// Chooses each problem in a session.
 pub struct Drill {
     plan: Plan,
+    /// Whether history matters to this plan at all.
+    learns: bool,
     model: SkillModel,
-    /// Skills seen recently in the kinds being asked, with their scores.
-    targets: Vec<(Feature, f64)>,
-    /// Questions seen recently in the kinds being asked, with their scores.
-    items: Vec<(Problem, f64)>,
+    /// Skills seen recently in the kinds being asked.
+    targets: BTreeSet<Feature>,
+    /// Questions seen recently in the kinds being asked.
+    items: BTreeSet<Problem>,
 }
 
 impl Drill {
@@ -232,13 +235,15 @@ impl Drill {
         window: u32,
         now: Timestamp,
     ) -> Self {
+        let learns = !(plan.source == Source::Fresh && plan.focus == 0.0);
         let mut drill = Self {
             plan,
+            learns,
             model: SkillModel::default(),
-            targets: Vec::new(),
-            items: Vec::new(),
+            targets: BTreeSet::new(),
+            items: BTreeSet::new(),
         };
-        if plan.source == Source::Fresh && plan.focus == 0.0 {
+        if !learns {
             return drill;
         }
         drill.model = SkillModel::build(&history.attempts, scoring, now);
@@ -246,28 +251,43 @@ impl Drill {
             0 => Timestamp::MIN,
             days => now - SignedDuration::from_hours(24 * i64::from(days)),
         };
-        let mut seen = HashSet::new();
         for a in history.attempts.iter().rev() {
             if a.ts < since {
                 break;
             }
-            if !settings.kinds.contains(&a.problem.kind()) {
-                continue;
-            }
-            for feature in features(&a.problem) {
-                if seen.insert(feature) {
-                    let score = drill.model.feature(&feature).score;
-                    match feature {
-                        Feature::Item(p) => drill.items.push((p, score)),
-                        f => drill.targets.push((f, score)),
-                    }
-                }
+            if settings.kinds.contains(&a.problem.kind()) {
+                drill.remember(&a.problem);
             }
         }
-        // History is newest first here; keep a stable order regardless.
-        drill.targets.sort_by_key(|a| a.0);
-        drill.items.sort_by_key(|a| a.0);
         drill
+    }
+
+    /// Learns from an attempt made during the session, so a slip now
+    /// counts toward what comes next.
+    pub fn observe(&mut self, attempt: &Attempt) {
+        if self.learns {
+            self.model.observe(attempt);
+            self.remember(&attempt.problem);
+        }
+    }
+
+    /// Adds what `problem` exercises to the pools to draw from.
+    fn remember(&mut self, problem: &Problem) {
+        for feature in features(problem) {
+            match feature {
+                Feature::Item(p) => self.items.insert(p),
+                f => self.targets.insert(f),
+            };
+        }
+    }
+
+    /// `options` with the model's score for each.
+    fn scored<T: Copy>(
+        &self,
+        options: impl IntoIterator<Item = T>,
+        score: impl Fn(T) -> f64,
+    ) -> Vec<(T, f64)> {
+        options.into_iter().map(|t| (t, score(t))).collect()
     }
 
     pub fn plan(&self) -> Plan {
@@ -286,7 +306,10 @@ impl Drill {
         match self.plan.source {
             Source::Fresh => fresh(rng),
             Source::Similar => {
-                let Some(target) = self.pick(&self.targets, rng) else {
+                let targets = self.scored(self.targets.iter().copied(), |f| {
+                    self.model.feature(&f).score
+                });
+                let Some(target) = self.pick(&targets, rng) else {
                     return fresh(rng);
                 };
                 (0..TRIES)
@@ -295,12 +318,8 @@ impl Drill {
                     .unwrap_or_else(|| fresh(rng))
             }
             Source::Replay => {
-                let pool: Vec<_> = self
-                    .items
-                    .iter()
-                    .filter(|(p, _)| Some(*p) != previous)
-                    .copied()
-                    .collect();
+                let pool = self.items.iter().copied().filter(|p| Some(*p) != previous);
+                let pool = self.scored(pool, |p| self.model.feature(&Feature::Item(p)).score);
                 self.pick(&pool, rng).unwrap_or_else(|| fresh(rng))
             }
         }
@@ -355,7 +374,7 @@ mod tests {
     use rand::{SeedableRng, rngs::StdRng};
 
     use super::*;
-    use crate::{config::Submit, problem::Kind, store::Attempt};
+    use crate::{config::Submit, problem::Kind};
 
     fn now() -> Timestamp {
         "2026-11-13T12:00:00Z".parse().unwrap()
@@ -502,5 +521,24 @@ mod tests {
         }
         let d = drill(Mode::Fukushu, &history);
         assert!(d.items.is_empty() && d.targets.is_empty());
+    }
+
+    #[test]
+    fn learns_during_the_session() {
+        // Every fact equally easy, so a slip now should stand out.
+        let mut history = history();
+        for a in &mut history.attempts {
+            a.ms = 1000;
+        }
+        let mut d = drill(Mode::Fukushu, &history);
+        let before = rate(&d);
+        for _ in 0..3 {
+            d.observe(&Attempt {
+                correct: false,
+                ..attempt(Problem::Mul { lhs: 8, rhs: 7 }, 9000)
+            });
+        }
+        let after = rate(&d);
+        assert!(after > 3 * before.max(5), "{before} → {after}");
     }
 }

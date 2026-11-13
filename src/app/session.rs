@@ -180,7 +180,9 @@ impl Session {
     }
 
     fn finish_problem(&mut self, now: Instant, correct: bool, skipped: bool, out: &mut Journal) {
-        out.push(Record::Attempt(self.attempt(now, correct, skipped)));
+        let attempt = self.attempt(now, correct, skipped);
+        self.drill.observe(&attempt);
+        out.push(Record::Attempt(attempt));
         self.correction = (!correct).then(|| Correction {
             question: self.problem.to_string(),
             answer: self.answer.to_string(),
