@@ -58,17 +58,39 @@ fn practice(config: Config, config_path: &Path, start: bool) -> Result<()> {
     if start {
         app = app.start_now(now);
     }
-    ratatui::run(|terminal| run(terminal, app, &store))
+    ratatui::run(|terminal| {
+        // Asking leaves a mark on screen, so wipe it before drawing.
+        let painter = ui::probe().then(ui::Painter::default);
+        terminal.clear()?;
+        run(terminal, app, &store, painter)
+    })
 }
 
 /// Redraws after every key, and on each whole second while the clock runs.
 /// Saves whatever the app records as soon as it is recorded, and deletes
 /// the history when the app says to.
-fn run(terminal: &mut DefaultTerminal, mut app: App, store: &Store) -> Result<()> {
+///
+/// With a `painter`, the terminal can draw text at twice the size, and
+/// the question is painted over each frame instead of being part of it.
+fn run(
+    terminal: &mut DefaultTerminal,
+    mut app: App,
+    store: &Store,
+    mut painter: Option<ui::Painter>,
+) -> Result<()> {
     while !app.quit {
         app.tick(Instant::now());
         save(&mut app, store)?;
-        terminal.draw(|frame| ui::render(&app, frame))?;
+        match &mut painter {
+            Some(painter) => {
+                let mut question = None;
+                terminal.draw(|frame| question = ui::render_scaled(&app, frame))?;
+                painter.paint(question, terminal.size()?, &mut io::stdout())?;
+            }
+            None => {
+                terminal.draw(|frame| ui::render(&app, frame))?;
+            }
+        }
         let ready = match app.until_next_tick() {
             Some(timeout) => event::poll(timeout)?,
             None => true,

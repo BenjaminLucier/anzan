@@ -106,6 +106,9 @@ The default is the four basic operations: addition and subtraction up to
 
 Questions are written in your terminal's own font, with exponents as
 superscripts, fractions stacked over a bar and roots under an overline.
+In a terminal that can scale text (Kitty and Ghostty, through the text
+sizing protocol), the question is drawn at twice the size; Anzan asks the
+terminal at startup, and elsewhere draws it at the usual size.
 
 ## Modes
 
