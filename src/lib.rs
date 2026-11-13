@@ -5,6 +5,7 @@ pub mod app;
 pub mod cli;
 pub mod config;
 pub mod export;
+pub mod expr;
 pub mod generate;
 pub mod problem;
 pub mod rational;

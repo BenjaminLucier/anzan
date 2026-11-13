@@ -4,7 +4,7 @@ use std::{fmt, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
-use crate::answer::Answer;
+use crate::{answer::Answer, expr::Expr};
 
 /// A kind of problem. Sessions choose among the kinds enabled in the
 /// config, and statistics group by kind.
@@ -139,12 +139,20 @@ impl Problem {
     }
 }
 
-impl fmt::Display for Problem {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Problem {
+    /// The question in mathematical notation.
+    pub fn expr(&self) -> Expr {
         match self.arithmetic() {
-            Some((op, lhs, rhs)) => write!(f, "{lhs} {} {rhs}", op.symbol()),
+            Some((op, lhs, rhs)) => Expr::text(format!("{lhs} {} {rhs}", op.symbol())),
             None => unreachable!("every problem is arithmetic so far"),
         }
+    }
+}
+
+/// The question on one line, as stored in history.
+impl fmt::Display for Problem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.expr())
     }
 }
 

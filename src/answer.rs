@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::rational::Rational;
+use crate::{expr::superscript, rational::Rational};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Answer {
@@ -87,7 +87,8 @@ impl fmt::Display for Answer {
                     first = false;
                     write!(f, "{}", group[0])?;
                     if group.len() > 1 {
-                        f.write_str(&superscript(group.len()))?;
+                        let exp = group.len().to_string();
+                        f.write_str(&superscript(&exp).unwrap_or(exp))?;
                     }
                 }
                 Ok(())
@@ -130,14 +131,6 @@ fn parse_factors(input: &str) -> Option<Vec<u64>> {
         factors.extend(std::iter::repeat_n(base, exp));
     }
     (!factors.is_empty()).then_some(factors)
-}
-
-fn superscript(n: usize) -> String {
-    const DIGITS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
-    n.to_string()
-        .bytes()
-        .map(|b| DIGITS[usize::from(b - b'0')])
-        .collect()
 }
 
 #[cfg(test)]

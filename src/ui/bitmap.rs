@@ -42,6 +42,12 @@ impl Bitmap {
         Some(Self::from_glyphs(glyphs.iter().map(|g| &g[..]), font::GAP))
     }
 
+    /// Draws `text` in the small exponent font.
+    pub fn small_text(text: &str) -> Option<Self> {
+        let glyphs: Vec<_> = text.chars().map(font::small_glyph).collect::<Option<_>>()?;
+        Some(Self::from_glyphs(glyphs.iter().map(|g| &g[..]), font::GAP))
+    }
+
     /// Lays glyphs out left to right, `gap` pixels apart, aligned at the
     /// top. Each glyph is rows of `#` (on) and `.` (off).
     pub fn from_glyphs<'a>(glyphs: impl IntoIterator<Item = &'a [&'a str]>, gap: usize) -> Self {
@@ -62,6 +68,35 @@ impl Bitmap {
             x0 += rows[0].len() + gap;
         }
         bitmap
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    /// Copies the pixels that are on in `other`, with its top left corner
+    /// at `(x, y)`. It must fit.
+    pub fn blit(&mut self, other: &Bitmap, x: usize, y: usize) {
+        for oy in 0..other.height {
+            for ox in 0..other.width {
+                if other.get(ox, oy) {
+                    self.set(x + ox, y + oy);
+                }
+            }
+        }
+    }
+
+    /// Each row as `#` for on and a space for off, for tests and debugging.
+    pub fn rows(&self) -> impl Iterator<Item = String> + '_ {
+        (0..self.height).map(|y| {
+            (0..self.width)
+                .map(|x| if self.get(x, y) { '#' } else { ' ' })
+                .collect()
+        })
     }
 
     /// Whether the pixel at `(x, y)` is on. Pixels outside are off.
@@ -202,7 +237,7 @@ mod tests {
     #[test]
     fn text_width_includes_gaps() {
         let bitmap = Bitmap::text("12").unwrap();
-        assert_eq!((bitmap.width, bitmap.height), (11, 7));
+        assert_eq!((bitmap.width(), bitmap.height()), (11, 7));
     }
 
     #[test]

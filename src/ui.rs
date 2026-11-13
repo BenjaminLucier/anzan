@@ -6,6 +6,7 @@
 mod bitmap;
 mod font;
 mod kanji;
+mod math;
 
 use std::time::Duration;
 
@@ -124,7 +125,8 @@ fn render_practice(session: &Session, frame: &mut Frame, area: Rect) {
     frame.render_widget(Line::from(hint).dim().centered(), hints);
 
     let text = session.problem.to_string();
-    let question = BigText::new(&text);
+    let bitmap = math::layout(&session.problem.expr()).map(|laid| laid.bitmap);
+    let question = BigText::bitmap(bitmap, &text);
     let room = area.inner(Margin::new(2, 1));
     let room = Size::new(
         room.width,

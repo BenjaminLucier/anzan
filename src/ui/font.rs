@@ -9,6 +9,29 @@ pub const HEIGHT: usize = 7;
 /// Pixels between neighbouring glyphs.
 pub const GAP: usize = 1;
 
+/// Height of the small glyphs used for exponents.
+pub const SMALL_HEIGHT: usize = 5;
+
+/// The rows of `c` in the small font, or `None` if it cannot draw it.
+#[rustfmt::skip]
+pub fn small_glyph(c: char) -> Option<[&'static str; SMALL_HEIGHT]> {
+    Some(match c {
+        '0' => ["###", "#.#", "#.#", "#.#", "###"],
+        '1' => [".#.", "##.", ".#.", ".#.", "###"],
+        '2' => ["###", "..#", "###", "#..", "###"],
+        '3' => ["###", "..#", "###", "..#", "###"],
+        '4' => ["#.#", "#.#", "###", "..#", "..#"],
+        '5' => ["###", "#..", "###", "..#", "###"],
+        '6' => ["###", "#..", "###", "#.#", "###"],
+        '7' => ["###", "..#", "..#", "..#", "..#"],
+        '8' => ["###", "#.#", "###", "#.#", "###"],
+        '9' => ["###", "#.#", "###", "..#", "###"],
+        '−' | '-' => ["...", "...", "###", "...", "..."],
+        '.' => [".", ".", ".", ".", "#"],
+        _ => return None,
+    })
+}
+
 /// The rows of `c`, or `None` if the font cannot draw it.
 #[rustfmt::skip]
 pub fn glyph(c: char) -> Option<[&'static str; HEIGHT]> {
@@ -186,6 +209,14 @@ mod tests {
                 assert_eq!(row.len(), width, "{c:?} has ragged rows");
                 assert!(row.chars().all(|p| p == '#' || p == '.'), "{c:?}: {row}");
             }
+        }
+    }
+
+    #[test]
+    fn small_glyph_rows_are_well_formed() {
+        for c in "0123456789−.".chars() {
+            let rows = small_glyph(c).unwrap();
+            assert!(rows.iter().all(|r| r.len() == rows[0].len()), "{c:?}");
         }
     }
 
