@@ -311,13 +311,13 @@ pub struct ThemeConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Question {
-    /// Twice the size where the terminal is known to manage it.
+    /// Large where the terminal is known to show the characters it is
+    /// drawn with.
     #[default]
     Auto,
     /// The size of everything else.
     Plain,
-    /// Twice the size, drawn in block characters if the terminal cannot
-    /// scale its font, whether or not it is known to have them.
+    /// Large, whether or not the terminal is known to manage it.
     Large,
 }
 

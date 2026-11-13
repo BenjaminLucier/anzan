@@ -1,5 +1,5 @@
-//! Questions drawn at twice the height, for terminals that cannot scale
-//! their own font.
+//! Questions drawn at twice the height of the terminal's font, which no
+//! terminal can be relied on to scale.
 //!
 //! The pixels are octants: the Unicode block characters that split a
 //! cell into two columns of four. A terminal cell is about twice as tall
@@ -22,6 +22,9 @@ use ratatui::{
 
 use super::bitmap::Bitmap;
 use crate::expr::Expr;
+
+/// Rows of cells a line of drawn text takes.
+pub const ROWS: u16 = 2;
 
 /// Pixels in a cell, across and down.
 const ACROSS: usize = 2;
@@ -203,7 +206,8 @@ impl<'a> Drawn<'a> {
         Self { picture, style }
     }
 
-    /// The pixel row the axis goes on in an area `rows` cells high.
+    /// The pixel row the axis goes on in an area `rows` cells high: the
+    /// one that puts a single line in the middle `ROWS`.
     fn axis_row(rows: u16) -> usize {
         (usize::from(rows) * DOWN / 2 + HEIGHT / 2).saturating_sub(DOWN)
     }

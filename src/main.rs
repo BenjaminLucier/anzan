@@ -59,12 +59,8 @@ fn practice(config: Config, config_path: &Path, start: bool) -> Result<()> {
     if start {
         app = app.start_now(now);
     }
-    ratatui::run(|terminal| {
-        let size = question_size(question);
-        // Asking the terminal leaves a mark on screen: wipe it.
-        terminal.clear()?;
-        run(terminal, app, &store, size)
-    })
+    let size = question_size(question);
+    ratatui::run(|terminal| run(terminal, app, &store, size))
 }
 
 /// Redraws after every key, and on each whole second while the clock runs.
@@ -76,16 +72,10 @@ fn run(
     store: &Store,
     size: QuestionSize,
 ) -> Result<()> {
-    // A scaled question is not part of the frame: it is painted over it.
-    let mut painter = ui::Painter::default();
     while !app.quit {
         app.tick(Instant::now());
         save(&mut app, store)?;
-        let mut question = None;
-        terminal.draw(|frame| question = ui::render_at(&app, frame, size))?;
-        if size == QuestionSize::Scaled {
-            painter.paint(question, terminal.size()?, &mut io::stdout())?;
-        }
+        terminal.draw(|frame| ui::render_at(&app, frame, size))?;
         let ready = match app.until_next_tick() {
             Some(timeout) => event::poll(timeout)?,
             None => true,
@@ -97,20 +87,18 @@ fn run(
     save(&mut app, store)
 }
 
-/// How to write the question in this terminal. Call in raw mode, since
-/// it may ask the terminal what it can do.
+/// How to write the question in this terminal. A large question is
+/// drawn out of octants, which a terminal shows only if its font has
+/// them or it draws block characters itself, as Ghostty and Kitty do.
 fn question_size(wanted: Question) -> QuestionSize {
-    // Ghostty draws block characters itself, octants among them,
-    // whatever the font. So does Kitty, but it can scale its font.
     let draws_octants = || {
         let is = |name: &str, value: &str| std::env::var(name).is_ok_and(|v| v.contains(value));
-        is("TERM_PROGRAM", "ghostty") || is("TERM", "ghostty")
+        is("TERM_PROGRAM", "ghostty") || is("TERM", "ghostty") || is("TERM", "kitty")
     };
     match wanted {
         Question::Plain => QuestionSize::Plain,
-        _ if ui::probe() => QuestionSize::Scaled,
-        Question::Large => QuestionSize::Drawn,
-        Question::Auto if draws_octants() => QuestionSize::Drawn,
+        Question::Large => QuestionSize::Large,
+        Question::Auto if draws_octants() => QuestionSize::Large,
         Question::Auto => QuestionSize::Plain,
     }
 }
