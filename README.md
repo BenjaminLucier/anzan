@@ -10,6 +10,12 @@ anything written down. The word is best known from soroban (abacus) training,
 where advanced students drop the physical abacus and move its beads in their
 heads, adding long columns of numbers in seconds.
 
+## Inspiration
+
+Anzan is inspired by [Zetamac](https://arithmetic.zetamac.com), the
+minimal timed arithmetic game, and uses its settings as the defaults for basic
+arithmetic.
+
 ## Status
 
 Early development.

@@ -9,4 +9,8 @@ keywords = ["mental-math", "tui", "ratatui", "arithmetic", "training"]
 categories = ["command-line-utilities", "mathematics", "games"]
 
 [dependencies]
+rand = "0.10.3"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm", "layout-cache"] }
+
+[dev-dependencies]
+proptest = "1.12.0"
