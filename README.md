@@ -1,5 +1,11 @@
 # Anzan 暗算
 
+[![CI](https://github.com/BenjaminLucier/anzan/actions/workflows/ci.yml/badge.svg)](https://github.com/BenjaminLucier/anzan/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/anzan.svg)](https://crates.io/crates/anzan)
+[![GitHub release](https://img.shields.io/github/v/release/BenjaminLucier/anzan)](https://github.com/BenjaminLucier/anzan/releases/latest)
+[![MSRV](https://img.shields.io/crates/msrv/anzan)](https://blog.rust-lang.org/releases/)
+[![License](https://img.shields.io/crates/l/anzan.svg)](#license)
+
 A terminal trainer for mental math.
 
 Anzan asks a stream of questions against the clock: arithmetic, powers and
@@ -31,13 +37,41 @@ The practice modes take their names from Japanese too; see [Modes](#modes).
 
 ## Install
 
-With a Rust toolchain (1.88 or later):
+**macOS and Linux**, with [Homebrew](https://brew.sh):
 
 ```sh
-cargo install anzan
+brew install BenjaminLucier/tap/anzan
 ```
 
-Or from a checkout of this repository, `cargo install --path .`.
+**Windows**, in PowerShell:
+
+```powershell
+irm https://github.com/BenjaminLucier/anzan/releases/latest/download/install.ps1 | iex
+```
+
+This installs to `%LOCALAPPDATA%\Programs\anzan` and adds that folder to
+your PATH. Set `ANZAN_VERSION` first for a particular version.
+
+**With Rust**, from [crates.io](https://crates.io/crates/anzan). Rust 1.88
+or later is needed to build it:
+
+```sh
+cargo install --locked anzan
+```
+
+or, with [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), to
+download a prebuilt binary instead of compiling:
+
+```sh
+cargo binstall anzan
+```
+
+**By hand:** every [release](https://github.com/BenjaminLucier/anzan/releases)
+has archives for macOS, Linux and Windows on x86_64 and ARM64, with SHA-256
+checksums and [build attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
+(`gh attestation verify <file> --repo BenjaminLucier/anzan`).
+
+From a checkout of this repository: `cargo install --locked --path .`.
 
 ## Use
 
