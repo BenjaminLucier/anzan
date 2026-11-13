@@ -6,8 +6,31 @@ rust-version = "1.88"
 description = "A terminal trainer for mental math (暗算)"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/BenjaminLucier/anzan"
+homepage = "https://github.com/BenjaminLucier/anzan"
 keywords = ["mental-math", "tui", "ratatui", "arithmetic", "training"]
 categories = ["command-line-utilities", "mathematics", "games"]
+include = [
+    "/src",
+    "/CHANGELOG.md",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+    "/README.md",
+    "/THEMES.md",
+]
+
+# `cargo binstall anzan` downloads the binaries the release workflow
+# attaches to each GitHub Release instead of compiling.
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }{ archive-suffix }"
+bin-dir = "{ bin }{ binary-ext }"
+pkg-fmt = "tgz"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"
+
+[package.metadata.binstall.overrides.aarch64-pc-windows-msvc]
+pkg-fmt = "zip"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -25,3 +48,11 @@ toml = "1.2.1"
 [dev-dependencies]
 proptest = "1.12.0"
 tempfile = "3.27.0"
+
+# The prebuilt binaries in GitHub Releases. Slower to build than `release`,
+# so `cargo install` keeps the default profile.
+[profile.dist]
+inherits = "release"
+lto = true
+codegen-units = 1
+strip = true
