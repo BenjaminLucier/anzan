@@ -13,17 +13,7 @@ roots, number theory, fractions and percentages, and finance. Every answer
 is saved. The history powers a statistics dashboard, and practice modes that
 find your weak spots and work on them.
 
-```text
- 1:52                           Score 7                        Esc menu
-
-                                8 × 39
-
-                        ┌──────────────────────┐
-                        │           31         │
-                        └──────────────────────┘
-
-                                Tab skip
-```
+![A session: answering questions as they are typed, then the statistics](https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/demo.gif)
 
 ## The name
 
@@ -79,6 +69,11 @@ Run `anzan` to open the menu: a panel of practice modes, one for the
 session's length and submit mode, and one for each group of problems.
 Choose what to practise, then press Enter.
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/latte/menu.png">
+  <img alt="The menu: practice modes, session settings and groups of problems" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/menu.png">
+</picture>
+
 | Key              | Menu                        | Practice     | Dashboard          |
 |------------------|-----------------------------|--------------|--------------------|
 | ← → or h l, Tab  | switch panel                |              | switch list        |
@@ -125,6 +120,11 @@ Answers can be written however is natural:
   one in the last place.
 
 ## Problems
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/latte/questions.png">
+  <img alt="Four questions: 7 × 47, 7/17 as a percentage, the square root of 668, and 28 squared" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/questions.png">
+</picture>
 
 | Group                     | Kind (`--kinds` name)                                                    |
 |---------------------------|--------------------------------------------------------------------------|
@@ -175,6 +175,12 @@ With no history yet, every mode asks problems at random.
 Press `d` on the menu or after a session. Lists run down the left, and the
 right shows the details of whatever is selected:
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/latte/dashboard.png">
+  <img alt="The dashboard's summary: score per session, practice per day and response times" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/dashboard.png">
+</picture>
+
+
 - **Summary**: totals and your daily streak, with the score trend over
   sessions that asked the same questions the same way: the same length,
   mode, submit mode, kinds and ranges for those kinds (scores are only
@@ -195,6 +201,16 @@ right shows the details of whatever is selected:
   asked twice, and a skill once it has come up five times. Select one to
   see every attempt behind it and, for a question with a shortcut, what
   the shortcut is.
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/latte/dashboard-multiplication.png">
+  <img alt="Multiplication: its speed curve, what takes time, and a times-table heatmap" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/dashboard-multiplication.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/latte/dashboard-weak-spot.png">
+  <img alt="A weak spot: every attempt that used one slow times-table fact" src="https://raw.githubusercontent.com/BenjaminLucier/anzan/main/docs/images/mocha/dashboard-weak-spot.png">
+</picture>
 
 Times are compared only between problems of the same kind and size, and
 by default only within the same submit mode, since pressing Enter takes
