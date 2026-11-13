@@ -54,6 +54,7 @@ Choose what to practise, then press Enter.
 | Tab              |                             | skip         |                    |
 | PgUp PgDn, J K   |                             |              | scroll details     |
 | d                | open the dashboard          |              |                    |
+| r                | undo changes made here      |              |                    |
 | t                | next colour theme           |              | next colour theme  |
 | ?                | key help                    |              | key help           |
 | Esc              | quit                        | back to menu | back to menu       |
@@ -161,7 +162,8 @@ are scored, and the colour theme. Scoring is recomputed from the raw history eve
 changing it rescores the past as well. Unknown keys are errors, so a typo
 never goes unnoticed.
 
-Changes made in the menu last until Anzan exits and are never written back.
+Changes made in the menu last until Anzan exits and are never written back;
+r in the menu undoes them all.
 
 ## Themes
 

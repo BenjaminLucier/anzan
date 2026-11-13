@@ -80,7 +80,7 @@ pub fn render(menu: &Menu, config: &Config, t: &Theme, frame: &mut Frame, area: 
         Panel::Session => "↑↓ move · Space change · t theme",
         Panel::Group(_) => "↑↓ move · Space toggle · a all",
     };
-    let hint = format!("←→ panel · {hint} · Enter start · d stats");
+    let hint = format!("←→ panel · {hint} · r reset · Enter start · d stats");
     frame.render_widget(Line::from(hint).style(t.muted()).centered(), hints);
 }
 

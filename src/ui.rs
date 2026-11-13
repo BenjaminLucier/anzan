@@ -64,6 +64,7 @@ const MENU_KEYS: &[(&str, &str)] = &[
     ("Space", "toggle a kind, or change a setting"),
     ("a", "toggle every kind in the group"),
     ("t", "next colour theme"),
+    ("r", "undo every change made here"),
     ("Enter", "start a session"),
     ("d", "open the statistics"),
     ("?", "this help"),

@@ -65,6 +65,8 @@ pub struct App {
     /// Settings for the next session: the config file, overridden by
     /// command-line flags and then by changes made in the menu.
     pub config: Config,
+    /// The settings as the app started, for `r` to go back to.
+    initial: Config,
     rng: StdRng,
     epoch: Epoch,
     journal: Journal,
@@ -75,12 +77,14 @@ pub struct App {
     /// The themes on offer, never empty, and the one in use.
     themes: Vec<Theme>,
     theme: usize,
+    initial_theme: usize,
 }
 
 impl App {
     /// Opens on the menu. `now` and `wall` must describe the same moment.
     pub fn new(config: Config, rng: StdRng, now: Instant, wall: Timestamp) -> Self {
         Self {
+            initial: config.clone(),
             config,
             rng,
             epoch: Epoch { instant: now, wall },
@@ -90,6 +94,7 @@ impl App {
             help: false,
             themes: vec![Theme::terminal()],
             theme: 0,
+            initial_theme: 0,
         }
     }
 
@@ -98,12 +103,21 @@ impl App {
         if current < themes.len() {
             self.themes = themes;
             self.theme = current;
+            self.initial_theme = current;
         }
         self
     }
 
     pub fn theme(&self) -> &Theme {
         &self.themes[self.theme]
+    }
+
+    /// Undoes every change made in the menu, theme included, going back
+    /// to the config file and command-line flags.
+    pub fn reset(&mut self) {
+        self.config = self.initial.clone();
+        self.theme = self.initial_theme;
+        self.screen = Screen::Menu(Menu::default());
     }
 
     /// Moves on to the next theme, for this run only.
@@ -179,6 +193,7 @@ impl App {
             (Screen::Menu(_), KeyCode::Esc | KeyCode::Char('q')) => self.quit = true,
             (Screen::Menu(_), KeyCode::Enter) => self.start(now),
             (Screen::Menu(_) | Screen::Dashboard(_), KeyCode::Char('t')) => self.cycle_theme(),
+            (Screen::Menu(_), KeyCode::Char('r')) => self.reset(),
             (Screen::Menu(menu), KeyCode::Char(' '))
                 if menu.selected(&self.config) == Item::Theme =>
             {
@@ -796,5 +811,34 @@ mod tests {
         let before = app.theme().name.clone();
         press(&mut app, KeyCode::Char('t'), t0);
         assert_eq!(app.theme().name, before);
+    }
+
+    #[test]
+    fn r_resets_the_menu() {
+        let t0 = Instant::now();
+        let mut app = App::new(
+            Config::default(),
+            StdRng::seed_from_u64(0),
+            t0,
+            wall_epoch(),
+        )
+        .with_themes(crate::theme::catalog(None), 1);
+        for code in [
+            KeyCode::Down,
+            KeyCode::Char('t'),
+            KeyCode::Right,
+            KeyCode::Char(' '),
+        ] {
+            press(&mut app, code, t0);
+        }
+        assert_ne!(app.config, Config::default());
+        assert_ne!(app.theme().name, "catppuccin-latte");
+        press(&mut app, KeyCode::Char('r'), t0);
+        assert_eq!(app.config, Config::default());
+        assert_eq!(app.theme().name, "catppuccin-latte");
+        let Screen::Menu(menu) = &app.screen else {
+            panic!("not on the menu");
+        };
+        assert_eq!(menu.panel(), Panel::Mode);
     }
 }
