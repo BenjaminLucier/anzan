@@ -6,16 +6,18 @@
 //! time. What should be saved is queued as records, which the caller drains
 //! and writes to the store.
 
+mod dashboard;
 mod menu;
 mod session;
 
 use std::time::{Duration, Instant};
 
-use jiff::Timestamp;
+use jiff::{Timestamp, tz::TimeZone};
 use rand::{SeedableRng, rngs::StdRng};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 pub use self::{
+    dashboard::{Dashboard, Report, Tab},
     menu::{Menu, Row},
     session::{Correction, Epoch, MAX_INPUT, Session, Summary},
 };
@@ -54,6 +56,7 @@ pub enum Screen {
     Menu(Menu),
     Practice(Session),
     Summary(Summary),
+    Dashboard(Dashboard),
 }
 
 pub struct App {
@@ -116,7 +119,7 @@ impl App {
     pub fn until_next_tick(&self) -> Option<Duration> {
         match &self.screen {
             Screen::Practice(session) => Some(session.until_next_tick()),
-            Screen::Menu(_) | Screen::Summary(_) => None,
+            Screen::Menu(_) | Screen::Summary(_) | Screen::Dashboard(_) => None,
         }
     }
 
@@ -139,6 +142,9 @@ impl App {
         match (&mut self.screen, key.code) {
             (Screen::Menu(_), KeyCode::Esc | KeyCode::Char('q')) => self.quit = true,
             (Screen::Menu(_), KeyCode::Enter) => self.start(now),
+            (Screen::Menu(_) | Screen::Summary(_), KeyCode::Char('d')) => {
+                self.open_dashboard(now);
+            }
             (Screen::Menu(menu), code) => match code {
                 KeyCode::Up | KeyCode::Char('k') => menu.up(),
                 KeyCode::Down | KeyCode::Char('j') => menu.down(),
@@ -162,6 +168,17 @@ impl App {
             (Screen::Practice(session), KeyCode::Tab) => session.skip(now, &mut self.journal),
             (Screen::Summary(_), KeyCode::Enter) => self.start(now),
             (Screen::Summary(_), KeyCode::Esc) => self.screen = Screen::Menu(Menu::default()),
+            (Screen::Dashboard(_), KeyCode::Esc | KeyCode::Char('q')) => {
+                self.screen = Screen::Menu(Menu::default());
+            }
+            (Screen::Dashboard(dash), code) => match code {
+                KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => dash.next(),
+                KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => dash.previous(),
+                KeyCode::Char(c) if c.is_ascii_digit() => {
+                    dash.select(c.to_digit(10).unwrap_or(0) as usize);
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -174,6 +191,16 @@ impl App {
             now,
         );
         self.screen = Screen::Practice(session);
+    }
+
+    fn open_dashboard(&mut self, now: Instant) {
+        let report = Report::build(
+            &self.journal.history,
+            &self.config,
+            self.epoch.wall(now),
+            &TimeZone::system(),
+        );
+        self.screen = Screen::Dashboard(Dashboard::new(report));
     }
 
     fn end_session(&mut self, now: Instant, completed: bool) {
@@ -621,5 +648,25 @@ mod tests {
         assert_eq!(records(&mut app).len(), 2);
         // Draining saves them; the history keeps them.
         assert_eq!(app.history().attempts.len(), 1);
+    }
+
+    #[test]
+    fn dashboard_opens_from_the_menu_and_summary() {
+        let (mut app, t0) = new_app();
+        app.tick(t0 + DURATION);
+        press(&mut app, KeyCode::Char('d'), t0 + DURATION);
+        let Screen::Dashboard(dash) = &app.screen else {
+            panic!("not on the dashboard");
+        };
+        assert_eq!(dash.report.sessions, 1);
+        press(&mut app, KeyCode::Right, t0 + DURATION);
+        let Screen::Dashboard(dash) = &app.screen else {
+            panic!("not on the dashboard");
+        };
+        assert_eq!(dash.tab, Tab::Speed);
+        press(&mut app, KeyCode::Esc, t0 + DURATION);
+        assert!(on_menu(&app));
+        press(&mut app, KeyCode::Char('d'), t0 + DURATION);
+        assert!(matches!(app.screen, Screen::Dashboard(_)));
     }
 }

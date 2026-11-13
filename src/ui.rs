@@ -4,6 +4,7 @@
 //! own theme shows through.
 
 mod bitmap;
+mod dashboard;
 mod font;
 mod kanji;
 mod math;
@@ -34,7 +35,8 @@ pub fn render(app: &App, frame: &mut Frame) {
     let hint = match app.screen {
         Screen::Menu(_) => "Esc quit ",
         Screen::Practice(_) => "Esc menu ",
-        Screen::Summary(_) => "Enter again · Esc menu ",
+        Screen::Summary(_) => "Enter again · d stats · Esc menu ",
+        Screen::Dashboard(_) => "Esc menu ",
     };
     frame.render_widget(Line::from(hint).dim().right_aligned(), top);
     match &app.screen {
@@ -44,6 +46,7 @@ pub fn render(app: &App, frame: &mut Frame) {
             render_practice(session, frame, body);
         }
         Screen::Summary(summary) => render_summary(summary, frame, body),
+        Screen::Dashboard(dash) => dashboard::render(dash, frame, body),
     }
 }
 
@@ -88,7 +91,7 @@ fn render_menu(menu: &Menu, config: &Config, frame: &mut Frame, area: Rect) {
         .collect();
     let list_area = list_area.centered_horizontally(Constraint::Length(MENU_WIDTH));
     frame.render_widget(Text::from(visible), list_area);
-    let hint = Line::from("↑↓ choose · ←→ change · Enter start")
+    let hint = Line::from("↑↓ choose · ←→ change · Enter start · d stats")
         .dim()
         .centered();
     frame.render_widget(hint, hints);
