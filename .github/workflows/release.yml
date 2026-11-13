@@ -118,6 +118,10 @@ jobs:
           include: LICENSE-APACHE,LICENSE-MIT,README.md
           checksum: sha256
           profile: dist
+          # Every target builds on a runner of its own architecture, so plain
+          # cargo works. The default picks `cross` for some targets, and cross
+          # assumes an x86_64 host.
+          build-tool: cargo
           locked: true
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
