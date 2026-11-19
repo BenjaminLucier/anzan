@@ -117,7 +117,7 @@ impl Report {
         Self {
             now,
             tz: tz.clone(),
-            today: now.to_zoned(tz.clone()).date(),
+            today: now.to_zoned_datetime(tz.clone()).date(),
             attempts: attempts.len(),
             damaged: history.damaged,
             kinds,
@@ -382,7 +382,9 @@ pub fn activity<'a>(
 ) -> BTreeMap<Date, u32> {
     let mut days = BTreeMap::new();
     for a in attempts {
-        *days.entry(a.ts.to_zoned(tz.clone()).date()).or_default() += 1;
+        *days
+            .entry(a.ts.to_zoned_datetime(tz.clone()).date())
+            .or_default() += 1;
     }
     days
 }
@@ -566,7 +568,7 @@ pub struct Week {
 
 /// The Monday of the week `ts` falls in, in `tz`.
 fn monday(ts: Timestamp, tz: &TimeZone) -> Date {
-    let day = ts.to_zoned(tz.clone()).date();
+    let day = ts.to_zoned_datetime(tz.clone()).date();
     day - i64::from(day.weekday().to_monday_zero_offset()).days()
 }
 
