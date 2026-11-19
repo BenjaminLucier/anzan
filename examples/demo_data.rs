@@ -22,7 +22,7 @@ use anzan::{
     problem::{Kind, Problem},
     store::{Attempt, SessionRecord, Store},
 };
-use jiff::{SignedDuration, Timestamp, ToSpan, Zoned, civil::Weekday, tz::TimeZone};
+use jiff::{SignedDuration, Timestamp, ToSpan, ZonedDateTime, civil::Weekday, tz::TimeZone};
 use rand::{RngExt, SeedableRng, rngs::StdRng, seq::IndexedRandom};
 
 /// "anzan" in ASCII.
@@ -47,7 +47,7 @@ fn main() -> Result<()> {
 
     let mut rng = StdRng::seed_from_u64(SEED);
     let tz = TimeZone::system();
-    let today = Zoned::now().date();
+    let today = ZonedDateTime::now().date();
     let setups = Setups::new();
     let mut slow: Vec<(Problem, f64)> = Vec::new();
     let (mut sessions, mut attempts) = (0, 0);
@@ -72,7 +72,7 @@ fn main() -> Result<()> {
         };
         let mut start = date
             .at(hour, minute, rng.random_range(0..60), 0)
-            .to_zoned(tz.clone())?
+            .to_zoned_datetime(tz.clone())?
             .timestamp();
 
         for _ in 0..count {

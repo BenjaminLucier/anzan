@@ -36,7 +36,7 @@ anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive"] }
 csv = "1.4.0"
 etcetera = "0.11.0"
-jiff = { version = "0.2.43", features = ["serde"] }
+jiff = { version = "1.0.1", features = ["serde"] }
 rand = "0.10.3"
 ratatui = { version = "0.30", default-features = false, features = ["crossterm", "layout-cache"] }
 serde = { version = "1.0.229", features = ["derive"] }

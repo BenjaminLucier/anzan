@@ -5,7 +5,7 @@
 //! does any counting. Panes keep their shape from one selection to the
 //! next, so moving through a list changes the numbers and not the layout.
 
-use jiff::{Timestamp, ToSpan, Zoned, civil::Date};
+use jiff::{Timestamp, ToSpan, ZonedDateTime, civil::Date};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Margin, Rect},
@@ -133,8 +133,8 @@ fn times(factor: f64) -> String {
     format!("{factor:.1}×")
 }
 
-fn local(report: &Report, ts: Timestamp) -> Zoned {
-    ts.to_zoned(report.tz.clone())
+fn local(report: &Report, ts: Timestamp) -> ZonedDateTime {
+    ts.to_zoned_datetime(report.tz.clone())
 }
 
 /// The lists down the left.
